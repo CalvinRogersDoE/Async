@@ -195,6 +195,9 @@ sealed class PortalForm : Form
 
             if (usingVnc)
             {
+                // Screen sharing Async set up itself (Linux) tells paired devices its password.
+                try { if ((await core.Describe(device)).VncPassword is { } auto) pass = auto; }
+                catch (Exception e) { Log.Write($"Describe before VNC: {e.Message}"); }
                 vnc.Connect(host, port, pass);
                 Log.Write($"Connecting to {TargetName} by VNC through the tunnel ({host}:{port})");
                 return;

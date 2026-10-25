@@ -60,6 +60,14 @@ impl Store {
         Ok(peer)
     }
 
+    pub fn rename_peer(&self, id: &str, name: &str) -> Result<()> {
+        let mut peers = self.peers();
+        for p in peers.iter_mut().filter(|p| p.id == id) {
+            p.name = name.to_string();
+        }
+        self.save(&peers)
+    }
+
     pub fn remove_peer(&self, id: &str) -> Result<bool> {
         let mut peers = self.peers();
         let before = peers.len();

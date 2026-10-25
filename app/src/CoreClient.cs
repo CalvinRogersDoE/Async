@@ -96,11 +96,16 @@ sealed class CoreClient : IDisposable
         return ((string)r["host"]!, (int)r["port"]!, (string)r["service"]!);
     }
 
-    /// <summary>What the device is (its OS) and which screen sharing it has turned on.</summary>
-    public async Task<(string Os, string[] Services)> Describe(string deviceId)
+    /// <summary>
+    /// What the device is (its OS), which screen sharing it has turned on, and the password of
+    /// screen sharing Async set up on it itself (Linux), which needs no typing.
+    /// </summary>
+    public async Task<(string Os, string[] Services, string? VncPassword)> Describe(string deviceId)
     {
         var r = await Request("describe", new() { ["peer"] = deviceId });
-        return ((string)r["os"]!, r["services"]!.AsArray().Select(s => (string)s!).ToArray());
+        // async-core refreshes the saved name from the answer; pick it up if it changed.
+        if (r["name"] is { } name && Devices.FirstOrDefault(d => d.Id == deviceId) is { } known && known.Name != (string)name!) _ = RefreshDevices();
+        return ((string)r["os"]!, r["services"]!.AsArray().Select(s => (string)s!).ToArray(), (string?)r["vnc_password"]);
     }
 
     public async Task<(int RttMs, bool Direct)> Probe(string deviceId)

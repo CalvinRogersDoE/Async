@@ -116,6 +116,8 @@ async fn main() -> Result<()> {
         _ => {}
     }
 
+    // install.sh keeps the password of the screen sharing it set up next to the data folder.
+    config.vnc_secret = data.parent().map(|p| p.join("vnc-secret"));
     let offers = config.clone();
     #[cfg(unix)]
     let socket = control::socket_path(&data);
@@ -196,8 +198,8 @@ mod tests {
         });
 
         let dir = std::env::temp_dir().join(format!("async-core-test-{}", std::process::id()));
-        let host = Core::start(dir.join("host"), HostConfig { rdp: Some(echo_addr), vnc: None, allow_incoming: true }).await?;
-        let viewer = Core::start(dir.join("viewer"), HostConfig { rdp: None, vnc: None, allow_incoming: true }).await?;
+        let host = Core::start(dir.join("host"), HostConfig { rdp: Some(echo_addr), vnc: None, allow_incoming: true, vnc_secret: None }).await?;
+        let viewer = Core::start(dir.join("viewer"), HostConfig { rdp: None, vnc: None, allow_incoming: true, vnc_secret: None }).await?;
 
         let code = pairing::new_code();
         let showing = tokio::spawn(pairing::host(code.clone(), host.id(), host.store.clone()));

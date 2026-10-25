@@ -99,29 +99,35 @@ listening() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
 # Desktops without built-in sharing (Cinnamon, MATE, Xfce… on X11): share the screen with x11vnc,
 # reachable only from this computer, so only Async's tunnel can get to it.
-if [ "$os" = Linux ] && ! listening 3389 && ! listening 5900 && [ "${XDG_SESSION_TYPE:-x11}" != wayland ]; then
+# Also re-run when Async set it up before, to bring that setup up to date.
+if [ "$os" = Linux ] && [ "${XDG_SESSION_TYPE:-x11}" != wayland ] && { [ -f "$(dirname "$unit")/async-vnc.service" ] || { ! listening 3389 && ! listening 5900; }; }; then
   if command -v x11vnc >/dev/null; then
-    if [ ! -f "$HOME/.vnc/passwd" ] && [ -t 0 ]; then
-      say "Pick a screen sharing password (you'll type it once more on your Windows PC):"
-      x11vnc -storepasswd
+    # Async makes up the password and hands it only to paired devices (through the encrypted
+    # tunnel), so nobody has to type it anywhere.
+    conf="${XDG_CONFIG_HOME:-$HOME/.config}/async"
+    if [ ! -s "$conf/vnc.passwd" ] || [ ! -s "$conf/vnc-secret" ]; then
+      mkdir -p "$conf"
+      ( umask 077
+        # (head stops tr early, which pipefail would treat as a failure)
+        { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 8 > "$conf/vnc-secret"; } || true
+        x11vnc -storepasswd "$(cat "$conf/vnc-secret")" "$conf/vnc.passwd" >/dev/null 2>&1 )
     fi
-    if [ -f "$HOME/.vnc/passwd" ]; then
-      cat > "$(dirname "$unit")/async-vnc.service" <<EOF
+    cat > "$(dirname "$unit")/async-vnc.service" <<EOF
 [Unit]
 Description=Screen sharing for Async (x11vnc on the desktop, local only)
 
 [Service]
-ExecStart=$(command -v x11vnc) -display :0 -auth guess -localhost -rfbport 5900 -rfbauth %h/.vnc/passwd -forever -shared -repeat -quiet
+ExecStart=$(command -v x11vnc) -display :0 -auth guess -localhost -rfbport 5900 -rfbauth $conf/vnc.passwd -forever -shared -repeat -quiet
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=default.target
 EOF
-      systemctl --user daemon-reload
-      systemctl --user enable --now async-vnc.service
-      sleep 2
-    fi
+    systemctl --user daemon-reload
+    systemctl --user enable async-vnc.service
+    systemctl --user restart async-vnc.service
+    sleep 2
   else
     warn "Your desktop has no screen sharing built in. Install it with:"
     warn "    sudo apt install x11vnc     (Fedora: sudo dnf install x11vnc)"

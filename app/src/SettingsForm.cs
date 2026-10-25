@@ -422,12 +422,14 @@ sealed class SettingsForm : Form
     {
         try
         {
-            var (os, services) = await core.Describe(d.Id);
+            var (os, services, vncPassword) = await core.Describe(d.Id);
             if (IsDisposed) return;
             string osName = os switch { "windows" => "Windows", "macos" => "macOS", "linux" => "Linux", _ => os };
-            detail.Text = services.Length == 0 ? $"{osName} · screen sharing is off" : $"{osName} · ready";
+            detail.Text = services.Length == 0 ? $"{osName} · screen sharing is off"
+                : vncPassword != null && !services.Contains("rdp") ? $"{osName} · ready, nothing to enter"
+                : $"{osName} · ready";
             detail.ForeColor = services.Length == 0 ? Color.FromArgb(255, 170, 90) : Color.FromArgb(120, 220, 170);
-            if (!services.Contains("rdp") && services.Contains("vnc")) { user.PlaceholderText = "no user needed"; }
+            if (!services.Contains("rdp") && services.Contains("vnc")) { user.PlaceholderText = vncPassword != null ? "nothing needed" : "no user needed"; }
         }
         catch { if (!IsDisposed) { detail.Text = "Offline: is Async running on it?"; detail.ForeColor = Dim; } }
     }

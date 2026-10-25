@@ -134,7 +134,15 @@ async fn handle(core: &Arc<Core>, req: &Value, out: &mpsc::UnboundedSender<Value
         }
         "pair_join" => json!({ "peer": pairing::join(core.endpoint(), str_field("code")?, &core.store).await? }),
         "remove_peer" => json!({ "removed": core.store.remove_peer(str_field("peer")?)? }),
-        "describe" => serde_json::to_value(core.tunnels.describe(peer_field()?).await?)?,
+        "describe" => {
+            let peer = peer_field()?;
+            let info = core.tunnels.describe(peer).await?;
+            // Keep the paired list's name current (it was taken at pairing time).
+            if core.store.peers().iter().any(|p| p.id == peer.to_string() && p.name != info.name) {
+                core.store.rename_peer(&peer.to_string(), &info.name)?;
+            }
+            serde_json::to_value(info)?
+        }
         "tunnel" => {
             let peer = peer_field()?;
             let service = match req.get("service").and_then(Value::as_str) {

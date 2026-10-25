@@ -71,6 +71,10 @@ pub struct DeviceInfo {
     /// of them. Empty when unknown (older versions, or screen sharing that shows one picture).
     #[serde(default)]
     pub screens: Vec<crate::screens::Screen>,
+    /// The password of screen sharing that Async set up itself (x11vnc on Linux), so paired
+    /// devices can sign in without anyone typing it. Only paired devices ever get this answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vnc_password: Option<String>,
 }
 
 /// Which local services this device lets paired devices into.
@@ -79,6 +83,8 @@ pub struct HostConfig {
     pub rdp: Option<SocketAddr>,
     pub vnc: Option<SocketAddr>,
     pub allow_incoming: bool,
+    /// Where install.sh keeps the password of the screen sharing it set up (Linux), if it did.
+    pub vnc_secret: Option<std::path::PathBuf>,
 }
 
 impl HostConfig {
@@ -88,9 +94,9 @@ impl HostConfig {
         let rdp: SocketAddr = "127.0.0.1:3389".parse().unwrap();
         let vnc: SocketAddr = "127.0.0.1:5900".parse().unwrap();
         match std::env::consts::OS {
-            "macos" => Self { rdp: None, vnc: Some(vnc), allow_incoming: true },
-            "linux" => Self { rdp: Some(rdp), vnc: Some(vnc), allow_incoming: true },
-            _ => Self { rdp: Some(rdp), vnc: None, allow_incoming: true },
+            "macos" => Self { rdp: None, vnc: Some(vnc), allow_incoming: true, vnc_secret: None },
+            "linux" => Self { rdp: Some(rdp), vnc: Some(vnc), allow_incoming: true, vnc_secret: None },
+            _ => Self { rdp: Some(rdp), vnc: None, allow_incoming: true, vnc_secret: None },
         }
     }
 
@@ -112,12 +118,20 @@ impl HostConfig {
                 }
             }
         }
+        let vnc_password = services
+            .iter()
+            .any(|s| s == "vnc")
+            .then(|| self.vnc_secret.as_ref().and_then(|p| std::fs::read_to_string(p).ok()))
+            .flatten()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         DeviceInfo {
             name: computer_name(),
             os: std::env::consts::OS.to_string(),
             services,
             version: env!("CARGO_PKG_VERSION").to_string(),
             screens: crate::screens::list(),
+            vnc_password,
         }
     }
 }

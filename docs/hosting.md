@@ -74,7 +74,7 @@ The installer checks for screen sharing and tells you what's missing:
 
 | Your desktop | What to do |
 |---|---|
-| **Linux Mint (Cinnamon), MATE, Xfce** | It asks you to run `sudo apt install x11vnc`. Do that, run `./install.sh` again, and pick a screen sharing password when it asks. It sets up the rest. |
+| **Linux Mint (Cinnamon), MATE, Xfce** | It asks you to run `sudo apt install x11vnc`. Do that and run `./install.sh` again. It sets up the rest, including a password your paired computers get on their own: nothing to type. |
 | **GNOME** (Ubuntu, Fedora, Pop!_OS) | **Settings → System → Remote Desktop → Desktop Sharing**: turn on Remote Desktop and Remote Control, and note the user name and password shown there. |
 | **KDE Plasma 6** | **System Settings → Remote Desktop**: turn it on and add a user and password. |
 
@@ -95,7 +95,7 @@ network; your Windows PC reaches it through Async's encrypted connection.
 1. Right-click the Async tray icon → **Settings…**
 2. Under **Devices**, find the new computer. Click **Password…** next to it and enter:
    - **Mac:** the Screen Sharing password from step 1. Leave the user empty.
-   - **Linux with x11vnc:** the password you picked. Leave the user empty.
+   - **Linux with x11vnc:** nothing; Async handles it. The card just says "ready, nothing to enter".
    - **Linux with GNOME or KDE Remote Desktop:** the user name and password from its settings.
 3. Under **Screen edges**, click the edge of a screen you want to punch through, and choose the
    new computer.
