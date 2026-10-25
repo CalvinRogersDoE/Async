@@ -157,7 +157,7 @@ sealed class PortalForm : Form
                 switching = true;
                 SetStatus($"Opening a portal to {TargetName}…");
             }
-            else if (!Connected) Connect();
+            else if (!Connected && !(usingVnc && vnc.IsBusy)) Connect(); // a VNC connection may still be signing in
             else if (!usingVnc) Fit();
         }
         catch (Exception e)

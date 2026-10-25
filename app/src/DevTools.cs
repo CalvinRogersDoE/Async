@@ -170,6 +170,15 @@ static class DevTools
         view.Connect(host, port, Environment.GetEnvironmentVariable("ASYNC_VNC_PASSWORD"));
         var deadline = DateTime.Now.AddSeconds(15);
         while (view.Updates < updates && error == null && DateTime.Now < deadline) { Application.DoEvents(); Thread.Sleep(20); }
+        // ASYNC_VNC_RECONNECT=1: connect a second time on the same viewer, as the portal does.
+        if (Environment.GetEnvironmentVariable("ASYNC_VNC_RECONNECT") == "1" && error == null)
+        {
+            int before = view.Updates;
+            view.Connect(host, port, Environment.GetEnvironmentVariable("ASYNC_VNC_PASSWORD"));
+            deadline = DateTime.Now.AddSeconds(15);
+            while (view.Updates < before + updates && error == null && DateTime.Now < deadline) { Application.DoEvents(); Thread.Sleep(20); }
+            updates += before;
+        }
         using var shot = view.Snapshot();
         shot?.Save(path, ImageFormat.Png);
         Console.Error.WriteLine(error ?? $"{view.Updates} updates from {view.RemoteName}");

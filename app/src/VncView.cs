@@ -23,8 +23,10 @@ sealed class VncView : Control
     TcpClient? client;
     NetworkStream? net;
     CancellationTokenSource? stop;
-    readonly ZlibFeed zfeed = new();
+    // ZRLE's zlib stream lasts one connection; each connection starts a fresh one.
+    ZlibFeed zfeed = new();
     ZLibStream? zlib;
+    Task reader = Task.CompletedTask;
     int buttons;
 
     public string RemoteName { get; private set; } = "";
@@ -33,6 +35,8 @@ sealed class VncView : Control
     /// <summary>A copy of the remote screen as received so far (for tests and docs).</summary>
     public Bitmap? Snapshot() { lock (fbLock) return fb == null ? null : new Bitmap(fb); }
     public bool IsConnected { get; private set; }
+    /// <summary>Connecting or connected: don't start another connection.</summary>
+    public bool IsBusy { get; private set; }
     public event Action? Connected;
     public event Action<string>? Disconnected;
 
@@ -50,11 +54,18 @@ sealed class VncView : Control
         Disconnect();
         stop = new CancellationTokenSource();
         var token = stop.Token;
-        _ = Task.Run(async () =>
+        var previous = reader;
+        IsBusy = true;
+        reader = Task.Run(async () =>
         {
             string why = "The connection closed.";
             try
             {
+                // The last connection's reader shares these fields; let it finish closing first.
+                await previous.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ContinueWith(_ => { });
+                zlib?.Dispose();
+                zlib = null;
+                zfeed = new ZlibFeed();
                 client = new TcpClient { NoDelay = true };
                 await client.ConnectAsync(host, port, token);
                 net = client.GetStream();
@@ -67,8 +78,9 @@ sealed class VncView : Control
             catch (Exception e) when (e is not OperationCanceledException) { why = e is VncException ? e.Message : $"Screen sharing connection lost: {e.Message}"; }
             catch (OperationCanceledException) { }
             IsConnected = false;
+            if (!token.IsCancellationRequested) IsBusy = false;
             if (!token.IsCancellationRequested && !IsDisposed) BeginInvoke(() => Disconnected?.Invoke(why));
-        }, token);
+        }, CancellationToken.None);
     }
 
     public void Disconnect()
@@ -78,6 +90,7 @@ sealed class VncView : Control
         client = null;
         net = null;
         IsConnected = false;
+        IsBusy = false;
     }
 
     void Handshake(string? password)
