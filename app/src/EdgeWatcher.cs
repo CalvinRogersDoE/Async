@@ -7,6 +7,8 @@ enum Edge { Top, Bottom, Left, Right }
 static class Edges
 {
     public static readonly Edge[] All = [Edge.Top, Edge.Bottom, Edge.Left, Edge.Right];
+    /// <summary>The edges that can lead to a computer; the bottom is always the way back.</summary>
+    public static readonly Edge[] Mappable = [Edge.Top, Edge.Left, Edge.Right];
     public static Edge Opposite(this Edge e) => e switch { Edge.Top => Edge.Bottom, Edge.Bottom => Edge.Top, Edge.Left => Edge.Right, _ => Edge.Left };
     public static bool Horizontal(this Edge e) => e is Edge.Top or Edge.Bottom;
 

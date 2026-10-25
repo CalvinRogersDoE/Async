@@ -147,36 +147,30 @@ impl App {
     }
 
     /// What pushing through an edge does: open a computer (or one of its screens), slide to the
-    /// next screen, close the portal, or nothing.
+    /// next screen, close the portal (always the bottom), or nothing.
     fn decide(&self, m: &Monitor, e: Edge) -> Option<Act> {
         let cfg = self.cfg.lock().unwrap();
         let first = self.devices.first().map(|d| d.id.as_str());
         let target = cfg.device_for(&m.name, e, first).filter(|(d, _)| self.devices.iter().any(|x| &x.id == d));
         if self.portal_here(m) {
+            if e == Edge::Bottom {
+                return Some(Act::Close);
+            }
             if let Some((d, screen)) = &target {
                 if *d != self.device || (screen.is_some() && *screen != self.screen) {
                     return Some(Act::Open(d.clone(), *screen));
                 }
             }
-            if e == self.entry && cfg.same_edge_closes {
-                return Some(Act::Close);
-            }
-            if e == self.entry.opposite() && cfg.opposite_edge_closes {
-                return Some(Act::Close);
-            }
-            // The sides across from the way in slide along the other computer's screens.
-            if e.horizontal() != self.entry.horizontal() && self.screens.len() > 1 {
+            // The sides slide along the other computer's screens.
+            if !e.horizontal() && self.screens.len() > 1 {
                 let current = self.screen.unwrap_or(0);
                 let next = match e {
-                    Edge::Left | Edge::Top => current.checked_sub(1),
-                    Edge::Right | Edge::Bottom => Some(current + 1).filter(|&n| n < self.screens.len()),
+                    Edge::Left => current.checked_sub(1),
+                    _ => Some(current + 1).filter(|&n| n < self.screens.len()),
                 };
                 if let Some(n) = next {
                     return Some(Act::Screen(n));
                 }
-            }
-            if target.is_some() && cfg.same_edge_closes {
-                return Some(Act::Close);
             }
             return None;
         }

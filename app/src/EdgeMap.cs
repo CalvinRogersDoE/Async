@@ -4,7 +4,7 @@ namespace Async;
 
 /// <summary>
 /// The "Screen edges" picture in Settings: your monitors as Windows arranges them, with every
-/// outer edge clickable. Clicking an edge picks which paired computer pushing through it opens.
+/// outer top and side edge clickable (the bottom is always the way back). Clicking an edge picks which paired computer pushing through it opens.
 /// Edges joined to another monitor aren't drawn, since the mouse just crosses over there.
 /// </summary>
 sealed class EdgeMap : Control
@@ -90,7 +90,7 @@ sealed class EdgeMap : Control
     (Screen, Edge)? HitTest(Point p)
     {
         foreach (var (s, r) in Placement())
-            foreach (var e in Edges.All)
+            foreach (var e in Edges.Mappable)
                 if (EdgeWatcher.IsFree(s.Bounds, e) && RectangleF.Inflate(Bar(r, e), 6, 6).Contains(p))
                     return (s, e);
         return null;
@@ -117,7 +117,7 @@ sealed class EdgeMap : Control
             using (var t = new SolidBrush(Text1)) g.DrawString(label, big, t, r.Left + (r.Width - ls.Width) / 2, cy - ls.Height + 4);
             using (var t = new SolidBrush(Dim)) g.DrawString(size, small, t, r.Left + (r.Width - ss.Width) / 2, cy + 4);
 
-            foreach (var e in Edges.All)
+            foreach (var e in Edges.Mappable)
             {
                 if (!EdgeWatcher.IsFree(s.Bounds, e)) continue;
                 var bar = Bar(r, e);

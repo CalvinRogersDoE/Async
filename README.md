@@ -9,9 +9,10 @@
 ![The portal opening, then closing](docs/preview.png)
 
 Async turns any monitor into a window onto another computer. Shove the mouse against the edge of a screen
-and a portal tears open where you pushed, showing the other computer's desktop on that monitor. Push out the
-opposite edge and it collapses back. Each edge of each monitor can lead to a different computer: the top of
-your main screen to your desktop, the right side of your laptop screen to a Mac, and so on.
+and a portal tears open where you pushed, showing the other computer's desktop on that monitor. Push down out
+of the bottom and it collapses back. The top and sides of each monitor can each lead to a different
+computer: the top of your main screen to your desktop, the right side of your laptop screen to a Mac, and
+so on.
 
 Async runs on every computer you want to move between. The copies pair with a short code and then talk
 through their own end-to-end encrypted tunnel. There's no account to make, no VPN to set up (Tailscale,
@@ -19,8 +20,9 @@ Hamachi…) and no ports to open on your router.
 
 ## Features
 
-- **Pick an edge for each computer:** Settings shows your monitors as they're arranged; click any outer
-  edge and choose which paired computer it opens. The remote desktop resizes itself to fit the monitor.
+- **Pick an edge for each computer:** Settings shows your monitors as they're arranged; click the top or a
+  side of a screen and choose which paired computer it opens. The bottom is always the way back. The
+  remote desktop resizes itself to fit the monitor.
 - **Deliberate pushes only:** resting at the edge, flicking past it, dragging a window to the top, or moving
   the camera in a game never triggers it. How hard and how long you push are adjustable.
 - **Edge glow:** the edge lights up as you push, so you can feel the portal about to open.

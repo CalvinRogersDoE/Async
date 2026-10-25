@@ -16,16 +16,8 @@ pub enum Edge {
 }
 
 impl Edge {
-    pub const ALL: [Edge; 4] = [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right];
-
-    pub fn opposite(self) -> Edge {
-        match self {
-            Edge::Top => Edge::Bottom,
-            Edge::Bottom => Edge::Top,
-            Edge::Left => Edge::Right,
-            Edge::Right => Edge::Left,
-        }
-    }
+    /// The edges that can lead to a computer; the bottom is always the way back.
+    pub const MAPPABLE: [Edge; 3] = [Edge::Top, Edge::Left, Edge::Right];
 
     pub fn horizontal(self) -> bool {
         matches!(self, Edge::Top | Edge::Bottom)
@@ -55,8 +47,6 @@ pub struct Settings {
     pub push_gap_ms: u64,
     /// The push has to last at least this long, so a fast flick past the edge doesn't count.
     pub push_hold_ms: u64,
-    pub same_edge_closes: bool,
-    pub opposite_edge_closes: bool,
     pub color_in: [u8; 3],
     pub color_out: [u8; 3],
     pub open_ms: u64,
@@ -71,8 +61,6 @@ impl Default for Settings {
             push_distance: 700,
             push_gap_ms: 300,
             push_hold_ms: 250,
-            same_edge_closes: true,
-            opposite_edge_closes: true,
             color_in: [176, 92, 255],
             color_out: [255, 154, 46],
             open_ms: 700,
@@ -121,6 +109,10 @@ impl Settings {
     /// The device pushing through this edge opens, if any, and which of its screens (by position,
     /// see `core::sorted`) when it has several.
     pub fn device_for(&self, monitor: &str, e: Edge, first_device: Option<&str>) -> Option<(String, Option<usize>)> {
+        // The bottom is always the way back.
+        if e == Edge::Bottom {
+            return None;
+        }
         match &self.edges {
             None => (e == Edge::Top).then(|| first_device.map(|d| (d.to_string(), None))).flatten(),
             Some(map) => map.get(&edge_key(monitor, e)).filter(|d| !d.is_empty()).map(|v| {

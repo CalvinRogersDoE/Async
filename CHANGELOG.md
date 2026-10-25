@@ -5,7 +5,8 @@
 - **Screen edges:** every outer edge of every monitor can open a different paired computer. Settings
   shows your monitors as arranged; click an edge to pick. Pushing through an edge mapped to another
   computer while a portal is open switches to it.
-- The opposite edge closes the portal (it was always the bottom).
+- Pushing out the bottom always closes the portal, whichever edge you came in through; the bottom
+  can't be assigned to a computer.
 - Linux desktops without built-in screen sharing (Linux Mint/Cinnamon, MATE, Xfce): `install.sh` sets up x11vnc with a password it makes up and hands only to paired devices, so nothing is typed. It sets
   up x11vnc, reachable only from the computer itself.
 - `async-core pair-host` and `peers` run alongside the background service.

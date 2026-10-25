@@ -97,11 +97,11 @@ network; your Windows PC reaches it through Async's encrypted connection.
    - **Mac:** the Screen Sharing password from step 1. Leave the user empty.
    - **Linux with x11vnc:** nothing; Async handles it. The card just says "ready, nothing to enter".
    - **Linux with GNOME or KDE Remote Desktop:** the user name and password from its settings.
-3. Under **Screen edges**, click the edge of a screen you want to punch through, and choose the
-   new computer.
+3. Under **Screen edges**, click the top or a side of a screen you want to punch through, and choose
+   the new computer. (The bottom is always the way back.)
 4. Click **Save**.
 
-Now push your mouse hard through that edge. Push out the opposite edge to come back.
+Now push your mouse hard through that edge. Push down out of the bottom of the screen to come back.
 
 The other computer must be awake and logged in: screen sharing shows the desktop you're logged into.
 

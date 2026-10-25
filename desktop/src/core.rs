@@ -65,7 +65,6 @@ pub struct Core {
     stream: Mutex<UnixStream>,
     pending: Pending,
     next: AtomicU64,
-    pub node_id: String,
     pub name: String,
 }
 
@@ -111,7 +110,7 @@ impl Core {
         });
         let ready = ready_rx.recv_timeout(Duration::from_secs(5)).context("Async's background service didn't answer")?;
         let text = |k: &str| ready.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
-        Ok(Arc::new(Self { stream: Mutex::new(stream), pending, next: AtomicU64::new(1), node_id: text("node_id"), name: text("name") }))
+        Ok(Arc::new(Self { stream: Mutex::new(stream), pending, next: AtomicU64::new(1), name: text("name") }))
     }
 
     pub fn request(&self, mut req: Value, timeout: Duration) -> Result<Value> {

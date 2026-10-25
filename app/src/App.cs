@@ -71,8 +71,7 @@ sealed class AsyncApp : ApplicationContext
 
     /// <summary>
     /// What pushing through an edge does. A mapped edge opens its computer (switching computers if a
-    /// portal to another one is open there); the edge the portal came through, or the one opposite
-    /// it, closes it.
+    /// portal to another one is open there); pushing out the bottom always closes the portal.
     /// </summary>
     (Act, string?) Decide(Screen s, Edge e)
     {
@@ -80,10 +79,8 @@ sealed class AsyncApp : ApplicationContext
         if (device != null && core.Devices.All(d => d.Id != device)) device = null;
         if (portal.Visible && portal.ScreenName == s.DeviceName)
         {
+            if (e == Edge.Bottom) return (Act.Close, null);
             if (device != null && device != portal.Device) return (Act.Open, device);
-            if (e == entry && cfg.TopPushToggles) return (Act.Close, null);
-            if (e == entry.Opposite() && cfg.BottomPushCloses) return (Act.Close, null);
-            if (device != null && cfg.TopPushToggles) return (Act.Close, null);
             return (Act.None, null);
         }
         return device != null ? (Act.Open, device) : (Act.None, null);

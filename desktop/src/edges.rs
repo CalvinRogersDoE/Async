@@ -17,7 +17,8 @@ use crate::monitors::{self, Monitor};
 
 #[derive(Debug, Clone)]
 pub enum Push {
-    /// A push is building: 0–1 progress toward firing.
+    /// A push is building: 0–1 progress toward firing. (Read once the edge glow comes to Linux.)
+    #[allow(dead_code)]
     Building { monitor: Monitor, edge: Edge, x: i32, y: i32, progress: f32 },
     Fired { monitor: Monitor, edge: Edge, x: i32, y: i32 },
 }

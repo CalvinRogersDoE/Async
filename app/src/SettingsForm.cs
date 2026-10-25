@@ -25,8 +25,6 @@ sealed class SettingsForm : Form
     readonly TrackBar strength = new() { Minimum = 200, Maximum = 2000, TickFrequency = 200, SmallChange = 50, LargeChange = 200, AutoSize = false, Height = 34 };
     readonly TrackBar hold = new() { Minimum = 0, Maximum = 800, TickFrequency = 100, SmallChange = 25, LargeChange = 100, AutoSize = false, Height = 34 };
     readonly Label strengthValue = Value(), holdValue = Value();
-    readonly CheckBox topToggles = Check("Pushing through the same edge again closes the portal");
-    readonly CheckBox bottomCloses = Check("Pushing out the opposite edge closes the portal");
     readonly CheckBox stayConnected = Check("Stay connected while the portal is closed, so it reopens instantly");
     readonly CheckBox startup = Check("Start Async with Windows");
     readonly Button colorIn = Swatch(), colorOut = Swatch();
@@ -71,8 +69,6 @@ sealed class SettingsForm : Form
         hotkey.Text = cfg.Hotkey;
         strength.Value = Math.Clamp(cfg.PushDistance, strength.Minimum, strength.Maximum);
         hold.Value = Math.Clamp(cfg.PushHoldMs, hold.Minimum, hold.Maximum);
-        topToggles.Checked = cfg.TopPushToggles;
-        bottomCloses.Checked = cfg.BottomPushCloses;
         stayConnected.Checked = cfg.StayConnected;
         startup.Checked = startsWithWindows;
         colorIn.BackColor = cfg.InColor;
@@ -207,7 +203,7 @@ sealed class SettingsForm : Form
         card.Padding = new Padding(8);
         card.Controls.Add(edgeMap);
         body.Controls.Add(card);
-        body.Controls.Add(Note("Click an edge of a screen and pick the computer pushing through it opens. Edges where two of your screens meet aren't shown: the mouse just crosses over there. Pushing out the opposite edge brings you back."));
+        body.Controls.Add(Note("Click the top or a side of a screen and pick the computer pushing through it opens. The bottom is always the way back. Edges where two of your screens meet aren't shown: the mouse just crosses over there."));
         return body;
     }
 
@@ -218,9 +214,8 @@ sealed class SettingsForm : Form
         body.Controls.Add(SliderCard("How long", "The push has to last at least this long, so flicking past the edge doesn't count.", hold, holdValue));
         var closing = CardPanel();
         var c = Column();
-        c.Controls.Add(new Label { Text = "Closing", AutoSize = true, Font = new Font("Segoe UI Semibold", 10.5f), ForeColor = Text1, Margin = new Padding(0, 0, 0, 6) });
-        c.Controls.Add(topToggles);
-        c.Controls.Add(bottomCloses);
+        c.Controls.Add(new Label { Text = "Coming back", AutoSize = true, Font = new Font("Segoe UI Semibold", 10.5f), ForeColor = Text1, Margin = new Padding(0, 0, 0, 4) });
+        c.Controls.Add(Note("Push down out of the bottom of the screen to close the portal, whichever edge you came in through."));
         closing.Controls.Add(c);
         body.Controls.Add(closing);
         var keyCard = CardPanel();
@@ -334,8 +329,6 @@ sealed class SettingsForm : Form
         cfg.Hotkey = hotkey.Text.Trim();
         cfg.PushDistance = strength.Value;
         cfg.PushHoldMs = hold.Value;
-        cfg.TopPushToggles = topToggles.Checked;
-        cfg.BottomPushCloses = bottomCloses.Checked;
         cfg.StayConnected = stayConnected.Checked;
         cfg.ColorIn = ColorTranslator.ToHtml(colorIn.BackColor);
         cfg.ColorOut = ColorTranslator.ToHtml(colorOut.BackColor);

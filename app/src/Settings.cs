@@ -23,8 +23,6 @@ sealed class Settings
     public int PushGapMs { get; set; } = 300;
     /// <summary>The push has to last at least this long, so a fast flick that overshoots the edge doesn't count.</summary>
     public int PushHoldMs { get; set; } = 250;
-    public bool TopPushToggles { get; set; } = true;
-    public bool BottomPushCloses { get; set; } = true;
     public string Hotkey { get; set; } = "Ctrl+Alt+Up";
 
     /// <summary>Keep the session alive while the portal is closed so the next punch is instant.</summary>
@@ -56,6 +54,8 @@ sealed class Settings
     /// <summary>The device pushing through this edge opens, or null if the edge does nothing.</summary>
     public string? DeviceFor(string screen, Edge e)
     {
+        // The bottom is always the way back.
+        if (e == Edge.Bottom) return null;
         if (EdgeDevices == null) return e == Edge.Top && IsConfigured ? TargetDevice : null;
         return EdgeDevices.TryGetValue(EdgeKey(screen, e), out var d) && d != "" ? d : null;
     }

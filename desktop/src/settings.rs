@@ -335,7 +335,7 @@ impl SettingsApp {
             painter.rect_filled(r, CornerRadius::same(3), MONITOR);
             painter.text(r.center() - Vec2::new(0.0, 8.0), egui::Align2::CENTER_CENTER, format!("{}", n + 1), egui::FontId::proportional(20.0), Color32::WHITE);
             painter.text(r.center() + Vec2::new(0.0, 12.0), egui::Align2::CENTER_CENTER, format!("{} · {}×{}", m.name, m.w, m.h), egui::FontId::proportional(11.0), DIM);
-            for e in Edge::ALL {
+            for e in Edge::MAPPABLE {
                 if !monitors::is_free(&self.monitors, m, e) {
                     continue;
                 }
@@ -391,7 +391,7 @@ impl SettingsApp {
                     });
                 });
             }
-            None => note(ui, "Click an edge of a screen to choose which computer pushing through it opens. Edges where two screens meet aren't shown: the mouse just crosses over there."),
+            None => note(ui, "Click the top or a side of a screen to choose which computer pushing through it opens. The bottom is always the way back. Edges where two screens meet aren't shown: the mouse just crosses over there."),
         }
     }
 
@@ -399,8 +399,7 @@ impl SettingsApp {
         heading(ui, "Push to punch");
         ui.add(egui::Slider::new(&mut self.cfg.push_distance, 200..=2000).text("how hard"));
         ui.add(egui::Slider::new(&mut self.cfg.push_hold_ms, 0..=800).text("how long (ms)"));
-        ui.checkbox(&mut self.cfg.same_edge_closes, "Pushing through the same edge again closes the portal");
-        ui.checkbox(&mut self.cfg.opposite_edge_closes, "Pushing out the opposite edge closes the portal");
+        note(ui, "Push down out of the bottom of the screen to close the portal, whichever edge you came in through.");
     }
 }
 
