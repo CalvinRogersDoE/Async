@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-10-25)
 
 - **Screen edges:** every outer edge of every monitor can open a different paired computer. Settings
   shows your monitors as arranged; click an edge to pick. Pushing through an edge mapped to another
