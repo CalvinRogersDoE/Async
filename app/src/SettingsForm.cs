@@ -422,7 +422,7 @@ sealed class SettingsForm : Form
                 : vncPassword != null && !services.Contains("rdp") ? $"{osName} · ready, nothing to enter"
                 : $"{osName} · ready";
             detail.ForeColor = services.Length == 0 ? Color.FromArgb(255, 170, 90) : Color.FromArgb(120, 220, 170);
-            if (!services.Contains("rdp") && services.Contains("vnc")) { user.PlaceholderText = vncPassword != null ? "nothing needed" : "no user needed"; }
+            if (!services.Contains("rdp") && services.Contains("vnc")) user.PlaceholderText = vncPassword != null ? "nothing needed" : os == "macos" ? "Mac user name" : "no user needed";
         }
         catch { if (!IsDisposed) { detail.Text = "Offline: is Async running on it?"; detail.ForeColor = Dim; } }
     }

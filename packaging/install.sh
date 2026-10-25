@@ -205,8 +205,8 @@ elif listening 5900; then
 else
   warn "Screen sharing isn't on yet, so paired computers can't see this one."
   if [ "$os" = Darwin ]; then
-    warn "Turn on System Settings > General > Sharing > Screen Sharing, click (i), turn on"
-    warn "\"VNC viewers may control screen with password\" and set a password."
+    warn "Turn on System Settings > General > Sharing > Screen Sharing. Your other computers then sign"
+    warn "in with the name and password you log into this Mac with."
   else
     warn "GNOME: Settings > System > Remote Desktop > Desktop Sharing (Remote Desktop, with a user and password)."
     warn "KDE Plasma 6: System Settings > Remote Desktop. Others: install xrdp, or a VNC server on port 5900."

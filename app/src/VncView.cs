@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Drawing.Imaging;
+using System.Numerics;
 using System.IO.Compression;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -52,7 +53,11 @@ sealed class VncView : Control
 
     // ---------- connection ----------
 
-    public void Connect(string host, int port, string? password)
+    /// <summary>
+    /// Connects and signs in: with the computer's own user name and password where it offers that
+    /// (a Mac's Screen Sharing), otherwise with a VNC password, or with none if it asks for none.
+    /// </summary>
+    public void Connect(string host, int port, string? user, string? password)
     {
         Disconnect();
         stop = new CancellationTokenSource();
@@ -72,7 +77,7 @@ sealed class VncView : Control
                 client = new TcpClient { NoDelay = true };
                 await client.ConnectAsync(host, port, token);
                 net = client.GetStream();
-                Handshake(password);
+                Handshake(user, password);
                 IsConnected = true;
                 BeginInvoke(() => Connected?.Invoke());
                 RequestUpdate(incremental: false);
@@ -96,7 +101,7 @@ sealed class VncView : Control
         IsBusy = false;
     }
 
-    void Handshake(string? password)
+    void Handshake(string? user, string? password)
     {
         string server = Encoding.ASCII.GetString(ReadBytes(12));
         if (!server.StartsWith("RFB ")) throw new VncException("That isn't a VNC screen sharing server.");
@@ -109,10 +114,15 @@ sealed class VncView : Control
             int count = ReadU8();
             if (count == 0) throw new VncException(ReadReason());
             var offered = ReadBytes(count);
-            if (offered.Contains((byte)2) && !string.IsNullOrEmpty(password)) security = 2;
+            bool hasUser = !string.IsNullOrEmpty(user), hasPassword = !string.IsNullOrEmpty(password);
+            // Apple's own sign-in (a Mac user name and password) first: newer macOS often turns the
+            // old VNC password away even when it's switched on.
+            if (offered.Contains((byte)AppleAuth) && hasUser && hasPassword) security = AppleAuth;
+            else if (offered.Contains((byte)2) && hasPassword) security = 2;
             else if (offered.Contains((byte)1)) security = 1;
-            else if (offered.Contains((byte)2)) throw new VncException("This computer's screen sharing needs a VNC password. Set it with Password… in Async's settings.");
-            else throw new VncException("This computer only allows Apple's own screen sharing login. On the Mac, open System Settings → General → Sharing → Screen Sharing (i), turn on \"VNC viewers may control screen with password\" and set a password, then save that password in Async.");
+            else if (offered.Contains((byte)AppleAuth)) throw new VncException("This Mac needs its user name and password. In Async's settings, click Password… next to it and enter the name and password you log into the Mac with.");
+            else if (offered.Contains((byte)2)) throw new VncException("This computer's screen sharing needs a password. Set it with Password… in Async's settings.");
+            else throw new VncException("This computer's screen sharing uses a sign-in Async doesn't know.");
             Write([(byte)security]);
         }
         else security = (int)ReadU32();
@@ -122,10 +132,17 @@ sealed class VncView : Control
             var challenge = ReadBytes(16);
             Write(VncAuth(password ?? "", challenge));
         }
+        else if (security == AppleAuth) AppleSignIn(user!, password!);
         if (security == 0) throw new VncException(ReadReason());
-        if (security == 2 || v38)
+        if (security is 2 or AppleAuth || v38)
         {
-            if (ReadU32() != 0) throw new VncException(v38 ? ReadReason() : "Wrong VNC password.");
+            if (ReadU32() != 0)
+            {
+                string why = v38 ? ReadReason() : "";
+                throw new VncException(security == AppleAuth
+                    ? $"The Mac turned down that user name and password{(why.Length > 0 ? $" ({why})" : "")}. Use the name and password you log into the Mac with: click Password… next to it in Async's settings."
+                    : $"Wrong screen sharing password{(why.Length > 0 ? $" ({why})" : "")}. Enter it again with Password… in Async's settings.");
+            }
         }
 
         Write([1]); // ClientInit: share the screen with anyone else watching
@@ -150,6 +167,54 @@ sealed class VncView : Control
         BinaryPrimitives.WriteUInt16BigEndian(enc.AsSpan(2), (ushort)encodings.Length);
         for (int i = 0; i < encodings.Length; i++) BinaryPrimitives.WriteInt32BigEndian(enc.AsSpan(4 + 4 * i), encodings[i]);
         Write(enc);
+    }
+
+    /// <summary>Security type 30, Apple's Diffie-Hellman sign-in with the Mac's user name and password.</summary>
+    const int AppleAuth = 30;
+
+    /// <summary>
+    /// Apple's sign-in: agree on a key with Diffie-Hellman (the Mac sends the generator, prime and its
+    /// public key), then send the user name and password (64 bytes each, NUL-terminated, padded with
+    /// random bytes) encrypted with AES-128-ECB under MD5(shared secret), followed by our public key.
+    /// </summary>
+    void AppleSignIn(string user, string password)
+    {
+        var generator = ReadBytes(2);
+        int keyLength = ReadU16();
+        var prime = ReadBytes(keyLength);
+        var theirPublic = ReadBytes(keyLength);
+
+        var p = new BigInteger(prime, isUnsigned: true, isBigEndian: true);
+        var g = new BigInteger(generator, isUnsigned: true, isBigEndian: true);
+        var secret = new BigInteger(RandomNumberGenerator.GetBytes(keyLength), isUnsigned: true, isBigEndian: true) % p;
+        var ourPublic = BigInteger.ModPow(g, secret, p);
+        var shared = BigInteger.ModPow(new BigInteger(theirPublic, isUnsigned: true, isBigEndian: true), secret, p);
+
+        byte[] Fixed(BigInteger v)
+        {
+            var b = v.ToByteArray(isUnsigned: true, isBigEndian: true);
+            if (b.Length >= keyLength) return b;
+            var padded = new byte[keyLength];
+            b.CopyTo(padded, keyLength - b.Length);
+            return padded;
+        }
+
+        var credentials = RandomNumberGenerator.GetBytes(128);
+        void Put(string text, int at)
+        {
+            var bytes = Encoding.UTF8.GetBytes(text);
+            int n = Math.Min(bytes.Length, 63);
+            Array.Copy(bytes, 0, credentials, at, n);
+            credentials[at + n] = 0;
+        }
+        Put(user, 0);
+        Put(password, 64);
+
+        using var aes = Aes.Create();
+        aes.Key = MD5.HashData(Fixed(shared));
+        var encrypted = aes.EncryptEcb(credentials, PaddingMode.None);
+        CryptographicOperations.ZeroMemory(credentials);
+        Write([.. encrypted, .. Fixed(ourPublic)]);
     }
 
     /// <summary>VNC's DES challenge-response: the password (8 bytes, each bit-reversed) encrypts the challenge.</summary>

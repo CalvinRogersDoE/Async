@@ -83,9 +83,9 @@ page, under *Assets*.
    switch **async-desktop** on. (It may mention keystrokes; Async only reads the mouse moving, to
    notice you pushing through a screen edge.)
 7. **To let your other computers punch into this Mac:** **Apple menu  → System Settings → General →
-   Sharing**, turn on **Screen Sharing**, click the **ⓘ** next to it, turn on **VNC viewers may control
-   screen with password**, type a password (up to 8 characters), and click **Done**. Write that
-   password down for step 3.
+   Sharing** and turn on **Screen Sharing**. That's all: your other computers sign in with the name and
+   password you log into this Mac with. (If the ⓘ next to Screen Sharing lists who's allowed in, make
+   sure that's you, or choose **All users**.)
 
 #### Linux
 
@@ -119,7 +119,8 @@ On the computer you'll punch **from**, click the purple ring → **Settings…**
 1. Under **Devices**, next to the computer you'll punch **into**, enter how to sign in to it:
    - **A Windows PC:** its Windows user name and password. If you sign into Windows with a Microsoft
      account, that's the account's email and password, not your PIN.
-   - **A Mac:** just the Screen Sharing password from Mac step 7. Leave the user empty.
+   - **A Mac:** the name and password you log into that Mac with. (Its short name works too: it's the
+     name of the Mac's home folder, e.g. `nicole`.)
    - **Linux with x11vnc:** nothing. It says *ready, nothing to enter*.
 2. Under **Screen edges**, click the top or a side of one of your screens and pick that computer. If
    it has several screens, pick which one to show.

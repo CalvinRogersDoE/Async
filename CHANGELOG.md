@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 (2026-10-25)
+
+- Punching into a Mac signs in with the Mac's own user name and password (Apple's screen sharing
+  sign-in), which newer macOS needs: the old VNC password was often turned away. No separate VNC
+  password to set up any more.
+- Clearer messages when a sign-in is turned down.
+
 ## 0.3.0 (2026-10-25)
 
 - **Screen edges:** every outer edge of every monitor can open a different paired computer. Settings

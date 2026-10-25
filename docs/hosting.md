@@ -41,9 +41,9 @@ question: **System Settings → Privacy & Security → Input Monitoring** → tu
 Skip this if you only want to punch *out* of the Mac.
 
 1. **System Settings → General → Sharing →** turn on **Screen Sharing**.
-2. Click the **ⓘ** next to it, turn on **VNC viewers may control screen with password**, and type a
-   password of up to 8 characters. Write it down; you'll type it once on your Windows PC.
-3. Click **Done**.
+2. That's it. Your Windows PC signs in with the name and password you log into this Mac with. If the
+   **ⓘ** next to Screen Sharing lists who's allowed in, make sure that includes you (or pick
+   **All users**).
 
 Then go to **[Pair and set up](#pair-and-set-up)**.
 
@@ -110,8 +110,7 @@ work now.
 
 In Async's **Settings** on the Windows PC, next to this computer:
 
-- **Mac:** click **Password…** and enter the Screen Sharing password from Mac step 3. Leave the user
-  empty.
+- **Mac:** click **Password…** and enter the name and password you log into the Mac with.
 - **Linux with x11vnc:** nothing; Async handles it. The card says "ready, nothing to enter".
 - **Linux with GNOME or KDE Remote Desktop:** the user name and password from its settings.
 
@@ -128,7 +127,8 @@ logged into.
 |---|---|
 | Pushing through an edge does nothing (Mac) | Allow Input Monitoring (Mac step 2), then quit Async from the menu-bar ring and log out and back in. |
 | The device shows **· screen sharing is off** in Settings | The screen sharing step isn't done yet on that computer. |
-| **This computer only allows Apple's own screen sharing login** | On the Mac, turn on *VNC viewers may control screen with password* (Mac step 3). |
+| **The Mac turned down that user name and password** | Click **Password…** next to the Mac in Settings on the Windows PC and enter the name and password you log into the Mac with. |
+| **This Mac needs its user name and password** | The same: the Mac's own name and password, with **Password…**. |
 | The device shows **· offline** | Async isn't running on it, or it's asleep or offline. Restarting it starts Async again. |
 | A wrong password message | Enter the password again in Settings. |
 

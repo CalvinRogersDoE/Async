@@ -64,7 +64,7 @@ static class Creds
         {
             Size = Marshal.SizeOf<CREDUI_INFO>(),
             CaptionText = "Async",
-            MessageText = $"Sign-in for {host} (the Windows account on the other PC).",
+            MessageText = $"Sign-in for {host}: its Windows user and password, or for a Mac the name and password you log into it with.",
         };
         var u = new StringBuilder(user, 514);
         var p = new StringBuilder(256);
