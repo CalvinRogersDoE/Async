@@ -42,45 +42,103 @@ Hamachi…) and no ports to open on your router.
 
 ![Settings](docs/settings.png)
 
-## Getting started
+## Set it up
 
-Grab the download for each computer from the [latest release](https://github.com/CalvinRogersDoE/Async/releases/latest):
+About ten minutes. Install Async on **every computer** you want to move between, pair them once, then
+pick which screen edge leads where.
 
-| Computer | Download | What it can do |
-|---|---|---|
-| Windows 10/11 | `Async-win-x64.zip`: unzip and run `Async.exe` | Punch into any of your computers, and be punched into |
-| macOS (Apple Silicon or Intel) | `Async-macos-universal.tar.gz`: unpack and double-click **Install Async.command** | Punch into Windows PCs, and be punched into |
-| Linux (x86-64 or ARM64, X11) | `Async-linux-x86_64.tar.gz` / `Async-linux-arm64.tar.gz`: unpack and run `./install.sh` | Punch into Windows PCs, and be punched into |
+All downloads are on the **[latest release](https://github.com/CalvinRogersDoE/Async/releases/latest)**
+page, under *Assets*.
 
-Each system runs programs built for it, so there's one download per system, all built from the same
-code. **Mac and Linux, step by step: [docs/hosting.md](docs/hosting.md).**
+### Step 1: install Async on each computer
 
-On Windows:
+#### Windows
 
-1. Run `Async.exe` on the computers involved. It sits in the system tray.
-2. On one computer: tray icon → **Pair a device…** → **Show a code**. On the other: **Pair a device…** →
-   **Enter a code**.
-3. In **Settings**, next to the computer you'll punch into, enter the Windows user to sign in as, then
-   **Password…** (for a Mac or Linux computer, just the screen sharing password). It's kept in Windows
-   Credential Manager on this PC only.
-4. Under **Screen edges**, click the top or a side of a screen and pick that computer. Save.
-5. Push your mouse hard through that edge.
+1. Download **Async-win-x64.zip**.
+2. Right-click it → **Extract All** → **Extract**.
+3. In the folder that opens, double-click **Async.exe**.
+   - If a blue box says *"Windows protected your PC"*: click **More info** → **Run anyway**.
+4. A **purple ring** appears in the system tray, by the clock. (Don't see it? Click the **^** arrow
+   there.)
+5. Right-click the ring and tick **Start with Windows** so it's always there.
+6. **To let your other computers punch into this PC:** open Windows **Settings → System → Remote
+   Desktop** and turn it **On**. (This needs Windows Pro. On Windows Home you can still punch *out*.)
 
-Turn on **Start Async with Windows** on any computer you want to be able to reach while you're away from it.
+#### Mac
 
-### Requirements
+1. Download **Async-macos-universal.tar.gz**. (Works on every Mac, Apple Silicon or Intel.)
+2. Open your **Downloads** folder and double-click that file. A folder called
+   **Async-macos-universal** appears next to it. (If Safari already unpacked it, the folder is already
+   there.)
+3. Open that folder and double-click **Install Async.command**.
+   - If macOS says it *"can't be opened"* or *"Apple could not verify"* it, that's because Async
+     isn't sold through Apple. Click **Done**, then open the **Apple menu  → System Settings →
+     Privacy & Security**, scroll down, and click **Open Anyway** next to *Install Async.command*.
+     Type your Mac password if asked, then click **Open**.
+4. A Terminal window opens and installs everything by itself. When it says **All done**, press any
+   key to close it.
+5. A **purple ring** appears in the menu bar at the top right of the screen. That's Async; it starts
+   by itself every time the Mac turns on.
+6. macOS asks to let **async-desktop** use **Input Monitoring**. Click **Open System Settings** and
+   switch **async-desktop** on. (It may mention keystrokes; Async only reads the mouse moving, to
+   notice you pushing through a screen edge.)
+7. **To let your other computers punch into this Mac:** **Apple menu  → System Settings → General →
+   Sharing**, turn on **Screen Sharing**, click the **ⓘ** next to it, turn on **VNC viewers may control
+   screen with password**, type a password (up to 8 characters), and click **Done**. Write that
+   password down for step 3.
 
-| | |
-|---|---|
-| Computer you punch **from** | Windows 10 or 11, macOS, or Linux on X11. From a Mac or Linux computer you can punch into Windows PCs for now |
-| Computer you punch **into** | **Windows** 10/11 Pro or Enterprise with Remote Desktop on (Settings → System → Remote Desktop), **macOS** with Screen Sharing on, or **Linux** with Remote Desktop (GNOME, KDE) or a VNC server. See [docs/hosting.md](docs/hosting.md) |
-| Both | Async running, and an internet connection (or the same network) |
+#### Linux
 
-Today the remote screen is carried by each system's own screen sharing (Remote Desktop, or VNC for
-Macs, which Async has a built-in viewer for), sent through Async's tunnel. Because
-Async tunnels it, you can block Remote Desktop's port (3389) to the network entirely; the tunnel delivers it
-locally. Windows Remote Desktop signs into the remote PC's account, so its own screen shows the lock screen
-while you're connected; its programs keep running.
+Linux Mint, Ubuntu (on Xorg), MATE, Xfce and other X11 desktops.
+
+1. Download **Async-linux-x86_64.tar.gz** (or **Async-linux-arm64.tar.gz** on a Raspberry Pi or other
+   ARM computer).
+2. Right-click it → **Extract Here**.
+3. Right-click the new folder → **Open in Terminal**, type `./install.sh` and press **Enter**. No
+   password needed.
+4. A **purple ring** appears in the tray. It starts by itself at every login, and **Async** is in your
+   applications menu.
+5. **To let your other computers punch into this one:** on Linux Mint, MATE or Xfce, run
+   `sudo apt install x11vnc` and then `./install.sh` again; Async sets up the rest, password included.
+   On GNOME or KDE, turn on Remote Desktop in their settings
+   ([details](docs/hosting.md#2-screen-sharing)).
+
+### Step 2: pair your computers
+
+Do this once for each pair of computers.
+
+1. On one computer, click the purple ring → **Pair a device…** (on a Mac or Linux computer: **Settings…
+   → Show a code**). It shows a code like `ABCD-EFGH`.
+2. On the other computer, type that code in: on Windows, **Pair a device… → Enter a code**; on a Mac or
+   Linux computer, **Settings…**, the box next to **Enter code**.
+
+### Step 3: say where each edge goes
+
+On the computer you'll punch **from**, click the purple ring → **Settings…**
+
+1. Under **Devices**, next to the computer you'll punch **into**, enter how to sign in to it:
+   - **A Windows PC:** its Windows user name and password. If you sign into Windows with a Microsoft
+     account, that's the account's email and password, not your PIN.
+   - **A Mac:** just the Screen Sharing password from Mac step 7. Leave the user empty.
+   - **Linux with x11vnc:** nothing. It says *ready, nothing to enter*.
+2. Under **Screen edges**, click the top or a side of one of your screens and pick that computer. If
+   it has several screens, pick which one to show.
+3. Click **Save**.
+
+### Step 4: punch through
+
+Push your mouse **hard** through that edge, as if you were trying to shove it off the screen. A portal
+opens onto the other computer. **Push down out of the bottom of the screen to come back.**
+
+Good to know:
+
+- Both computers need to be on, logged in, and online. They don't need to be on the same network,
+  and there's nothing to set up on your router.
+- When you punch into a Windows PC, its own screen shows the lock screen while you're in. Its programs
+  keep running.
+- From a Mac or Linux computer you can punch into Windows PCs for now. Into Macs and Linux computers,
+  punch from a Windows PC.
+- Stuck? The [full guide](docs/hosting.md) has more detail and a troubleshooting table.
 
 ## Roadmap
 
