@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-10-25)
 
 - The screen edge glows as a push builds, in the colour of what the push will do.
 - The remote cursor lands where you punched through.

@@ -15,7 +15,7 @@
     <Authors>Claude via Calvin</Authors>
     <Company>Claude via Calvin</Company>
     <Description>Push your mouse through the top of a screen to punch a portal into another computer.</Description>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
   </PropertyGroup>
 
   <!-- The Rust half lives in ../core. Build it first (cargo build release); pass AsyncCoreExe to use another path. -->
