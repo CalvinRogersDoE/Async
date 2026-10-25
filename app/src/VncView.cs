@@ -20,6 +20,9 @@ sealed class VncView : Control
 
     readonly object fbLock = new();
     Bitmap? fb;
+    // The bitmap's size, kept apart: GDI+ refuses even fb.Width while another thread has it locked.
+    int fbW, fbH;
+    Size FbSize => new(fbW, fbH);
     TcpClient? client;
     NetworkStream? net;
     CancellationTokenSource? stop;
@@ -328,6 +331,7 @@ sealed class VncView : Control
         {
             fb?.Dispose();
             fb = new Bitmap(Math.Max(1, w), Math.Max(1, h), PixelFormat.Format32bppRgb);
+            (fbW, fbH) = (fb.Width, fb.Height);
         }
     }
 
@@ -335,8 +339,8 @@ sealed class VncView : Control
     {
         lock (fbLock)
         {
-            if (fb == null || y < 0 || y >= fb.Height || x < 0) return;
-            pixels = Math.Min(pixels, fb.Width - x);
+            if (fb == null || y < 0 || y >= fbH || x < 0) return;
+            pixels = Math.Min(pixels, fbW - x);
             if (pixels <= 0) return;
             var data = fb.LockBits(new Rectangle(x, y, pixels, 1), ImageLockMode.WriteOnly, PixelFormat.Format32bppRgb);
             Marshal.Copy(src, offset, data.Scan0, pixels * 4);
@@ -346,7 +350,7 @@ sealed class VncView : Control
 
     Rectangle Fit()
     {
-        var size = fb?.Size ?? Size.Empty;
+        var size = FbSize;
         if (size.IsEmpty || Width == 0 || Height == 0) return ClientRectangle;
         float scale = Math.Min((float)Width / size.Width, (float)Height / size.Height);
         int w = (int)(size.Width * scale), h = (int)(size.Height * scale);
@@ -356,8 +360,8 @@ sealed class VncView : Control
     Rectangle ToScreen(Rectangle r)
     {
         var fit = Fit();
-        if (fb == null) return ClientRectangle;
-        float sx = (float)fit.Width / fb.Width, sy = (float)fit.Height / fb.Height;
+        if (fbW == 0) return ClientRectangle;
+        float sx = (float)fit.Width / fbW, sy = (float)fit.Height / fbH;
         return Rectangle.Inflate(new Rectangle(fit.X + (int)(r.X * sx), fit.Y + (int)(r.Y * sy), (int)(r.Width * sx) + 1, (int)(r.Height * sy) + 1), 2, 2);
     }
 
@@ -383,9 +387,9 @@ sealed class VncView : Control
     Point ToRemote(Point p)
     {
         var fit = Fit();
-        if (fb == null || fit.Width == 0) return Point.Empty;
-        int x = (int)((p.X - fit.X) * (float)fb.Width / fit.Width), y = (int)((p.Y - fit.Y) * (float)fb.Height / fit.Height);
-        return new Point(Math.Clamp(x, 0, fb.Width - 1), Math.Clamp(y, 0, fb.Height - 1));
+        if (fbW == 0 || fit.Width == 0) return Point.Empty;
+        int x = (int)((p.X - fit.X) * (float)fbW / fit.Width), y = (int)((p.Y - fit.Y) * (float)fbH / fit.Height);
+        return new Point(Math.Clamp(x, 0, fbW - 1), Math.Clamp(y, 0, fbH - 1));
     }
 
     void SendPointer(Point p, int mask)
@@ -469,7 +473,7 @@ sealed class VncView : Control
 
     void RequestUpdate(bool incremental)
     {
-        var size = fb?.Size ?? Size.Empty;
+        var size = FbSize;
         var msg = new byte[10];
         msg[0] = 3;
         msg[1] = (byte)(incremental ? 1 : 0);

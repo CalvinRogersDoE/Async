@@ -169,7 +169,7 @@ static class DevTools
         form.Show();
         view.Connect(host, port, Environment.GetEnvironmentVariable("ASYNC_VNC_PASSWORD"));
         var deadline = DateTime.Now.AddSeconds(15);
-        while (view.Updates < updates && error == null && DateTime.Now < deadline) { Application.DoEvents(); Thread.Sleep(20); }
+        while (view.Updates < updates && error == null && DateTime.Now < deadline) { view.Refresh(); Application.DoEvents(); Thread.Sleep(5); }
         // ASYNC_VNC_RECONNECT=1: connect a second time on the same viewer, as the portal does.
         if (Environment.GetEnvironmentVariable("ASYNC_VNC_RECONNECT") == "1" && error == null)
         {
