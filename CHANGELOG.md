@@ -10,7 +10,13 @@
 - Linux desktops without built-in screen sharing (Linux Mint/Cinnamon, MATE, Xfce): `install.sh` sets up x11vnc with a password it makes up and hands only to paired devices, so nothing is typed. It sets
   up x11vnc, reachable only from the computer itself.
 - `async-core pair-host` and `peers` run alongside the background service.
-- Rewritten step-by-step guide for setting up a Mac or Linux computer.
+- **Async for macOS and Linux** (`async-desktop`): punch out of a Mac or Linux computer into your Windows
+  PCs, with the same edge pushes, portal, screen-edge map and settings. A menu-bar/tray icon, Keychain or
+  keyring for passwords, and it starts at login. The Mac download has a double-click installer.
+- Punching into a Windows PC with several screens opens Remote Desktop with that PC's own screen layout
+  and shows one screen; each edge can pick which, and the sides slide between them.
+- Windows settings window rebuilt with a sidebar, one page per section.
+- Rewritten step-by-step guide for Mac and Linux.
 
 ## 0.2.0 (2026-10-25)
 
