@@ -12,6 +12,8 @@ sealed class EdgeWatcher : NativeWindow, IDisposable
     public event Action<Screen, Point>? PushedTop;
     public event Action<Screen, Point>? PushedBottom;
     public event Action? Hotkey;
+    /// <summary>A push is building: screen, cursor, whether it's the top edge, and 0–1 progress toward firing.</summary>
+    public event Action<Screen, Point, bool, float>? Pushing;
 
     readonly Settings cfg;
     readonly int headerSize = Marshal.SizeOf<Native.RAWINPUTHEADER>();
@@ -84,6 +86,9 @@ sealed class EdgeWatcher : NativeWindow, IDisposable
         if (dir == 0) return;
 
         pushed += Math.Abs(dy);
+        // How close the push is to firing: whichever of distance and duration is further behind.
+        float progress = Math.Min((float)pushed / cfg.PushDistance, cfg.PushHoldMs <= 0 ? 1 : (float)(now - pushStart) / cfg.PushHoldMs);
+        Pushing?.Invoke(screen, p, dir < 0, Math.Clamp(progress, 0, 1));
         if (pushed < cfg.PushDistance || now - pushStart < cfg.PushHoldMs) return;
 
         pushed = 0;

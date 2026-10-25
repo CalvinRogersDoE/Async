@@ -14,6 +14,12 @@ static class Program
             return;
         }
 
+        if (args.Length >= 4 && args[0] == "--vnc-snapshot")
+        {
+            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+            Environment.Exit(DevTools.VncSnapshot(args[1], int.Parse(args[2]), args[3], args.Length > 4 ? int.Parse(args[4]) : 3));
+        }
+
         using var single = new Mutex(false, "Async.App");
         try
         {

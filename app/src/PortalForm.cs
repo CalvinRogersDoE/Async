@@ -37,15 +37,16 @@ sealed class PortalForm : Form
     readonly Settings cfg;
     readonly CoreClient core;
     readonly RdpHost rdp;
+    readonly VncView vnc = new() { Dock = DockStyle.Fill, Visible = false };
     readonly Label status;
     readonly System.Windows.Forms.Timer poll = new() { Interval = 500 };
     dynamic? ocx;
-    bool eventsHooked, loggedIn, connecting;
+    bool eventsHooked, loggedIn, connecting, usingVnc;
     (int W, int H, int Scale) fitted;
 
     public Rectangle Target { get; private set; }
     public string? ScreenName { get; private set; }
-    public bool Connected => State == 1;
+    public bool Connected => usingVnc ? vnc.IsConnected : State == 1;
     public event Action<string>? StatusChanged;
 
     public PortalForm(Settings cfg, CoreClient core, Icon icon)
@@ -71,7 +72,15 @@ sealed class PortalForm : Form
             Font = new Font("Segoe UI", 26, FontStyle.Regular, GraphicsUnit.Pixel),
         };
         Controls.Add(rdp);
+        Controls.Add(vnc);
         Controls.Add(status);
+        vnc.Connected += () => { Log.Write($"VNC connected to {vnc.RemoteName}"); StatusChanged?.Invoke($"Connected to {TargetName}"); };
+        vnc.Disconnected += why =>
+        {
+            Log.Write($"VNC disconnected: {why}");
+            SetStatus($"{why}\n\nPush down out of the bottom to go back.");
+            StatusChanged?.Invoke("Not connected");
+        };
         status.BringToFront();
         poll.Tick += (_, _) => Poll();
         poll.Start();
@@ -109,7 +118,7 @@ sealed class PortalForm : Form
     public void FocusSession()
     {
         Native.ForceForeground(Handle);
-        if (Connected) rdp.Focus();
+        if (Connected) { if (usingVnc) vnc.Focus(); else rdp.Focus(); }
     }
 
     public void HideAway()
@@ -120,6 +129,7 @@ sealed class PortalForm : Form
 
     public void Disconnect()
     {
+        vnc.Disconnect();
         try { if (State != 0) ocx!.Disconnect(); } catch (Exception e) { Log.Write($"Disconnect: {e.Message}"); }
     }
 
@@ -135,11 +145,8 @@ sealed class PortalForm : Form
         {
             ocx ??= rdp.GetOcx();
             HookEvents();
-            switch (State)
-            {
-                case 0: Connect(); break;
-                case 1: Fit(); break;
-            }
+            if (!Connected) Connect();
+            else if (!usingVnc) Fit();
         }
         catch (Exception e)
         {
@@ -161,19 +168,32 @@ sealed class PortalForm : Form
         string device = cfg.TargetDevice, user = cfg.UserFor(device);
         var (savedUser, pass) = Creds.Read(Settings.CredentialTarget(device));
         if (!string.IsNullOrEmpty(savedUser)) user = savedUser;
-        if (pass == null || string.IsNullOrEmpty(user))
-        {
-            SetStatus($"No sign-in saved for {TargetName} yet.\n\nRight-click the Async tray icon → Settings… → Password…");
-            return;
-        }
 
         connecting = true;
         SetStatus($"Opening a portal to {TargetName}…");
         try
         {
+            // The device says what its screen sharing speaks: Remote Desktop (Windows, Linux) or VNC (macOS).
+            var (host, port, service) = await core.OpenScreen(device);
+            Text = $"Async · {TargetName}";
+            usingVnc = service == "vnc";
+            rdp.Visible = !usingVnc;
+            vnc.Visible = usingVnc;
+
+            if (usingVnc)
+            {
+                vnc.Connect(host, port, pass);
+                Log.Write($"Connecting to {TargetName} by VNC through the tunnel ({host}:{port})");
+                return;
+            }
+
+            if (pass == null || string.IsNullOrEmpty(user))
+            {
+                SetStatus($"No sign-in saved for {TargetName} yet.\n\nRight-click the Async tray icon → Settings… → Password…");
+                return;
+            }
             // The tunnel is end-to-end encrypted and only reaches devices we paired with, so
             // Remote Desktop's own certificate check (always a name mismatch here) adds nothing.
-            var (host, port) = await core.OpenRemoteDesktop(device);
             loggedIn = false;
             fitted = default;
             ocx!.Server = host;
@@ -182,7 +202,6 @@ sealed class PortalForm : Form
             ocx.DesktopWidth = Target.Width;
             ocx.DesktopHeight = Target.Height;
             ocx.ColorDepth = 32;
-            Text = $"Async · {TargetName}";
 
             dynamic adv = ocx.AdvancedSettings9;
             adv.RDPPort = port;
@@ -257,7 +276,7 @@ sealed class PortalForm : Form
 
     void Poll()
     {
-        bool show = State != 1;
+        bool show = !Connected;
         if (status.Visible != show) status.Visible = show;
         if (show) status.BringToFront();
     }

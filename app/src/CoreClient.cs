@@ -86,11 +86,21 @@ sealed class CoreClient : IDisposable
         await RefreshDevices();
     }
 
-    /// <summary>The local address whose traffic comes out at the device's Remote Desktop.</summary>
-    public async Task<(string Host, int Port)> OpenRemoteDesktop(string deviceId)
+    /// <summary>
+    /// A local address whose traffic comes out at the device's screen sharing, and which kind it is
+    /// ("rdp" or "vnc"). The core picks Remote Desktop when the device offers both.
+    /// </summary>
+    public async Task<(string Host, int Port, string Service)> OpenScreen(string deviceId)
     {
-        var r = await Request("tunnel", new() { ["peer"] = deviceId, ["service"] = "rdp" });
-        return ((string)r["host"]!, (int)r["port"]!);
+        var r = await Request("tunnel", new() { ["peer"] = deviceId });
+        return ((string)r["host"]!, (int)r["port"]!, (string)r["service"]!);
+    }
+
+    /// <summary>What the device is (its OS) and which screen sharing it has turned on.</summary>
+    public async Task<(string Os, string[] Services)> Describe(string deviceId)
+    {
+        var r = await Request("describe", new() { ["peer"] = deviceId });
+        return ((string)r["os"]!, r["services"]!.AsArray().Select(s => (string)s!).ToArray());
     }
 
     public async Task<(int RttMs, bool Direct)> Probe(string deviceId)

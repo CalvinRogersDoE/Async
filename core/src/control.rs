@@ -10,7 +10,8 @@
 //! | `pair_cancel`|                 |                                          |
 //! | `pair_join`  | `code`          | `peer`                                   |
 //! | `remove_peer`| `peer`          | `removed`                                |
-//! | `tunnel`     | `peer`, `service` (`"rdp"`) | `host`, `port`               |
+//! | `describe`   | `peer`          | `name`, `os`, `services` (`"rdp"`, `"vnc"`) |
+//! | `tunnel`     | `peer`, `service` (`"rdp"`/`"vnc"`, optional) | `host`, `port`, `service` |
 //! | `probe`      | `peer`          | `rtt_ms`, `direct`                       |
 //!
 //! Every reply has `ok`; failures carry `error` (a sentence fit to show the user).
@@ -94,10 +95,15 @@ async fn handle(core: &Arc<Core>, req: &Value, out: &mpsc::UnboundedSender<Value
         }
         "pair_join" => json!({ "peer": pairing::join(core.endpoint(), str_field("code")?, &core.store).await? }),
         "remove_peer" => json!({ "removed": core.store.remove_peer(str_field("peer")?)? }),
+        "describe" => serde_json::to_value(core.tunnels.describe(peer_field()?).await?)?,
         "tunnel" => {
-            let service = Service::parse(req.get("service").and_then(Value::as_str).unwrap_or("rdp"))?;
-            let addr = core.tunnels.open(peer_field()?, service).await?;
-            json!({ "host": addr.ip().to_string(), "port": addr.port() })
+            let peer = peer_field()?;
+            let service = match req.get("service").and_then(Value::as_str) {
+                Some(name) => Service::parse(name)?,
+                None => crate::best_service(&core.tunnels.describe(peer).await?.services)?,
+            };
+            let addr = core.tunnels.open(peer, service).await?;
+            json!({ "host": addr.ip().to_string(), "port": addr.port(), "service": service.name() })
         }
         "probe" => {
             let (rtt, direct) = core.tunnels.probe(peer_field()?).await?;

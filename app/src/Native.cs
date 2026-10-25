@@ -34,6 +34,7 @@ static class Native
     }
 
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vk);
     [DllImport("user32.dll")] public static extern bool GetCursorInfo(ref CURSORINFO ci);
     [DllImport("user32.dll")] public static extern bool GetClipCursor(out RECT r);

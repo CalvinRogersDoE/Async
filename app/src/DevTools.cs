@@ -31,8 +31,8 @@ static class DevTools
 
         (float Radius, Color Col, bool Vortex, string Caption)[] frames =
         [
-            (0, cfg.InColor, true, "1. Push through the top edge"),
-            (R * 0.38f, cfg.InColor, false, "2. The portal tears open"),
+            (-1, cfg.InColor, false, "1. Push into the top edge: it starts to glow"),
+            (0, cfg.InColor, true, "2. Keep pushing and the portal tears open"),
             (R * 0.82f, cfg.InColor, false, "3. The other PC fills the screen"),
             (R * 0.45f, cfg.OutColor, false, "4. Push out the bottom to close it"),
         ];
@@ -53,7 +53,11 @@ static class DevTools
                     fg.ResetClip();
                 }
                 using var fx = new PortalFx();
-                if (f.Vortex)
+                if (f.Radius < 0)
+                {
+                    EdgeGlow.Paint(fg, c.X, 0, top: true, 0.7f, f.Col);
+                }
+                else if (f.Vortex)
                 {
                     fx.Shockwave(fg, c, 150, f.Col, 0.6f);
                     fx.Vortex(fg, c, 34, f.Col, 1);
@@ -132,6 +136,26 @@ static class DevTools
         using var bmp = new Bitmap(form.Width, form.Height);
         form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));
         bmp.Save(path, ImageFormat.Png);
+    }
+
+    // ---------- VNC check ----------
+
+    /// <summary><c>--vnc-snapshot HOST PORT OUT.png [UPDATES]</c>: connect, wait for screen updates, save what arrived.</summary>
+    public static int VncSnapshot(string host, int port, string path, int updates)
+    {
+        using var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, Size = new Size(400, 300) };
+        var view = new VncView { Dock = DockStyle.Fill };
+        form.Controls.Add(view);
+        string? error = null;
+        view.Disconnected += why => error = why;
+        form.Show();
+        view.Connect(host, port, Environment.GetEnvironmentVariable("ASYNC_VNC_PASSWORD"));
+        var deadline = DateTime.Now.AddSeconds(15);
+        while (view.Updates < updates && error == null && DateTime.Now < deadline) { Application.DoEvents(); Thread.Sleep(20); }
+        using var shot = view.Snapshot();
+        shot?.Save(path, ImageFormat.Png);
+        Console.Error.WriteLine(error ?? $"{view.Updates} updates from {view.RemoteName}");
+        return error == null && view.Updates >= updates ? 0 : 1;
     }
 
     // ---------- icon ----------

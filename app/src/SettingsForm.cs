@@ -191,7 +191,6 @@ sealed class SettingsForm : Form
             var pass = SmallButton("Password…", 90);
             pass.Click += (_, _) =>
             {
-                if (string.IsNullOrWhiteSpace(user.Text)) { user.Focus(); return; }
                 Creds.Prompt(Settings.CredentialTarget(d.Id), user.Text.Trim(), d.Name);
             };
             var remove = SmallButton("Remove", 70);
@@ -204,8 +203,23 @@ sealed class SettingsForm : Form
             deviceList.Controls.Add(user, 1, row);
             deviceList.Controls.Add(pass, 2, row);
             deviceList.Controls.Add(remove, 3, row);
+            _ = Describe(d, pick, user);
         }
         deviceList.ResumeLayout();
+    }
+
+    /// <summary>Asks the device what it is, so the row can say e.g. "MacBook · macOS".</summary>
+    async Task Describe(Device d, RadioButton pick, TextBox user)
+    {
+        try
+        {
+            var (os, services) = await core.Describe(d.Id);
+            if (IsDisposed) return;
+            string osName = os switch { "windows" => "Windows", "macos" => "macOS", "linux" => "Linux", _ => os };
+            pick.Text = services.Length == 0 ? $"{d.Name} · {osName} · screen sharing off" : $"{d.Name} · {osName}";
+            if (!services.Contains("rdp") && services.Contains("vnc")) user.PlaceholderText = "not needed";
+        }
+        catch { if (!IsDisposed) pick.Text = $"{d.Name} · offline"; }
     }
 
     void UpdateRdpStatus()

@@ -14,6 +14,7 @@ sealed class AsyncApp : ApplicationContext
     readonly NotifyIcon tray;
     readonly EdgeWatcher edges;
     readonly PortalFx fx = new();
+    readonly EdgeGlow glow = new();
     readonly PortalForm portal;
     readonly CoreClient core;
     SoundPlayer soundIn, soundOut;
@@ -33,6 +34,7 @@ sealed class AsyncApp : ApplicationContext
         edges.PushedTop += OnPushTop;
         edges.PushedBottom += OnPushBottom;
         edges.Hotkey += OnHotkey;
+        edges.Pushing += OnPushing;
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Punch in here", null, (_, _) => OnHotkey());
@@ -64,8 +66,20 @@ sealed class AsyncApp : ApplicationContext
 
     // ---------- triggers ----------
 
+    /// <summary>Light up the edge while a push builds, but only where the push would actually do something.</summary>
+    void OnPushing(Screen s, Point p, bool topEdge, float progress)
+    {
+        if (busy) return;
+        bool portalHere = portal.Visible && portal.ScreenName == s.DeviceName;
+        if (topEdge)
+            glow.Push(s, p, topEdge, progress, portalHere && cfg.TopPushToggles ? cfg.OutColor : cfg.InColor);
+        else if (portalHere && cfg.BottomPushCloses)
+            glow.Push(s, p, topEdge, progress, cfg.OutColor);
+    }
+
     void OnPushTop(Screen s, Point p)
     {
+        glow.Clear();
         if (busy) return;
         if (!portal.Visible) Run(Open(s, p.X));
         else if (portal.ScreenName != s.DeviceName) Run(Move(s, p.X));
@@ -74,6 +88,7 @@ sealed class AsyncApp : ApplicationContext
 
     void OnPushBottom(Screen s, Point p)
     {
+        glow.Clear();
         if (busy || !portal.Visible || portal.ScreenName != s.DeviceName || !cfg.BottomPushCloses) return;
         Run(Close(p.X, fromBottom: true));
     }
@@ -137,6 +152,9 @@ sealed class AsyncApp : ApplicationContext
 
             portal.ClearShape();
             portal.FocusSession();
+            // Land on the other PC right where you punched through: nudge the pointer just inside
+            // the edge so Remote Desktop moves the remote cursor to the same spot.
+            Native.SetCursorPos(b.Left + (int)c.X, b.Top + 4);
 
             await Anim.Run(Ms(260), t =>
             {
@@ -276,6 +294,7 @@ sealed class AsyncApp : ApplicationContext
         core.Dispose();
         edges.Dispose();
         fx.Dispose();
+        glow.Dispose();
         tray.Dispose();
         base.ExitThreadCore();
     }
