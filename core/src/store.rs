@@ -81,7 +81,17 @@ fn now() -> u64 {
 }
 
 pub fn computer_name() -> String {
+    // Background services (systemd, launchd) don't get HOSTNAME, so ask the system as well.
+    let ask = |cmd: &str, args: &[&str]| {
+        std::process::Command::new(cmd).args(args).output().ok().and_then(|o| String::from_utf8(o.stdout).ok())
+    };
     std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .unwrap_or_else(|_| "Unnamed PC".into())
+        .ok()
+        .or_else(|| cfg!(target_os = "macos").then(|| ask("scutil", &["--get", "ComputerName"])).flatten())
+        .or_else(|| std::fs::read_to_string("/etc/hostname").ok())
+        .or_else(|| std::env::var("HOSTNAME").ok())
+        .or_else(|| ask("hostname", &[]))
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "Unnamed PC".into())
 }

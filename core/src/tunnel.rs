@@ -67,6 +67,10 @@ pub struct DeviceInfo {
     pub os: String,
     pub services: Vec<String>,
     pub version: String,
+    /// The device's monitors, so a viewer can lay a remote session out the same way and show one
+    /// of them. Empty when unknown (older versions, or screen sharing that shows one picture).
+    #[serde(default)]
+    pub screens: Vec<crate::screens::Screen>,
 }
 
 /// Which local services this device lets paired devices into.
@@ -108,7 +112,13 @@ impl HostConfig {
                 }
             }
         }
-        DeviceInfo { name: computer_name(), os: std::env::consts::OS.to_string(), services, version: env!("CARGO_PKG_VERSION").to_string() }
+        DeviceInfo {
+            name: computer_name(),
+            os: std::env::consts::OS.to_string(),
+            services,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            screens: crate::screens::list(),
+        }
     }
 }
 

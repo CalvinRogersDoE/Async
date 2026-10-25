@@ -138,13 +138,19 @@ static class DevTools
         {
             Device[] demo = [new("demo-desktop", "Desktop"), new("demo-laptop", "Laptop")];
             map.SetDevices(demo);
+            form.ShowSampleDevices(demo);
             var screens = Screen.AllScreens.OrderBy(s => s.Bounds.Left).ToArray();
             map.Mapping[Settings.EdgeKey(screens[0].DeviceName, Edge.Top)] = demo[0].Id;
             map.Mapping[Settings.EdgeKey(screens[^1].DeviceName, screens.Length > 1 ? Edge.Right : Edge.Left)] = demo[1].Id;
         }
-        using var bmp = new Bitmap(form.Width, form.Height);
-        form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));
-        bmp.Save(path, ImageFormat.Png);
+        foreach (var (page, file) in new[] { ("Screen edges", path), ("Devices", Path.ChangeExtension(path, null) + "-devices.png"), ("Push to punch", Path.ChangeExtension(path, null) + "-push.png"), ("Sounds", Path.ChangeExtension(path, null) + "-sounds.png") })
+        {
+            form.ShowPage(page);
+            Application.DoEvents();
+            using var bmp = new Bitmap(form.Width, form.Height);
+            form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));
+            bmp.Save(file, ImageFormat.Png);
+        }
     }
 
     static T? Find<T>(Control root) where T : Control =>

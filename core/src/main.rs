@@ -6,7 +6,7 @@
 //! plain command-line modes:
 //!
 //! ```text
-//! async-core [--data DIR] serve              # let paired devices in, nothing else
+//! async-core [--data DIR] serve              # let paired devices in (and, on macOS/Linux, the desktop app)
 //! async-core [--data DIR] pair-host          # show a code and wait for another device
 //! async-core [--data DIR] pair-join CODE     # pair with the device showing CODE
 //! async-core [--data DIR] peers              # list paired devices
@@ -21,6 +21,7 @@
 
 mod control;
 mod pairing;
+mod screens;
 mod store;
 mod tunnel;
 
@@ -116,6 +117,8 @@ async fn main() -> Result<()> {
     }
 
     let offers = config.clone();
+    #[cfg(unix)]
+    let socket = control::socket_path(&data);
     let core = Arc::new(Core::start(data, config).await?);
     let mode = args.first().map(String::as_str).unwrap_or("control");
     match mode {
@@ -129,6 +132,9 @@ async fn main() -> Result<()> {
                 println!("offering to paired devices: {}", info.services.join(", "));
             }
             println!("Ctrl+C to stop");
+            // The desktop app (macOS, Linux) drives this running service through a local socket.
+            #[cfg(unix)]
+            tokio::spawn(control::listen(core.clone(), socket));
             tokio::signal::ctrl_c().await?;
             Ok(())
         }

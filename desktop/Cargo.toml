@@ -1,0 +1,32 @@
+[package]
+name = "async-desktop"
+version = "0.3.0"
+edition = "2024"
+description = "Async for Linux: push the mouse through a screen edge to punch a portal into another computer"
+license = "MIT"
+authors = ["Claude via Calvin"]
+
+[[bin]]
+name = "async-desktop"
+path = "src/main.rs"
+
+[dependencies]
+# Remote Desktop client engine (Apache-2.0/MIT), pinned to a known commit.
+ironrdp = { git = "https://github.com/Devolutions/IronRDP", rev = "b69cda2", default-features = false, features = ["connector", "input", "pdu", "client", "rustls"] }
+
+winit = { version = "0.30", features = ["rwh_06"] }
+softbuffer = "0.4"
+raw-window-handle = "0.6"
+x11rb = { version = "0.13", features = ["xinput", "randr", "shape"] }
+eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+ksni = { version = "0.3", features = ["blocking"] }
+keyring = { version = "3", features = ["async-secret-service", "tokio", "crypto-rust"] }
+
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+smallvec = "1"
+
+[profile.release]
+strip = true

@@ -1,4 +1,6 @@
-//! The JSON-lines protocol the Async app speaks to async-core over stdin/stdout.
+//! The JSON-lines protocol the Async app speaks to async-core: over stdin/stdout when the app
+//! runs async-core itself (Windows), or over a local socket to the background service (macOS and
+//! Linux, see `listen`).
 //!
 //! Requests carry an `id` that the reply echoes; events have an `event` field instead.
 //!
@@ -15,7 +17,8 @@
 //! | `probe`      | `peer`          | `rtt_ms`, `direct`                       |
 //!
 //! Every reply has `ok`; failures carry `error` (a sentence fit to show the user).
-//! When stdin closes (the app exited), async-core exits too.
+//! When stdin closes (the app exited), async-core exits too. A socket connection closing only
+//! ends that session.
 
 use std::sync::Arc;
 
@@ -23,7 +26,7 @@ use anyhow::{Context, Result};
 use iroh::EndpointId;
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     sync::{Mutex, mpsc},
     task::JoinHandle,
 };
@@ -31,20 +34,53 @@ use tokio::{
 use crate::{Core, pairing, store::computer_name, tunnel::Service};
 
 pub async fn run(core: Arc<Core>) -> Result<()> {
+    session(core.clone(), tokio::io::stdin(), tokio::io::stdout()).await?;
+    core.router.shutdown().await.ok();
+    Ok(())
+}
+
+/// Where the background service listens for the desktop app: a socket only this user can reach.
+#[cfg(unix)]
+pub fn socket_path(data: &std::path::Path) -> std::path::PathBuf {
+    match std::env::var_os("XDG_RUNTIME_DIR") {
+        Some(dir) => std::path::PathBuf::from(dir).join("async-core.sock"),
+        None => data.join("control.sock"),
+    }
+}
+
+/// Serves the control protocol on a local socket, one session per connection, so the desktop app
+/// can use the service that's already running instead of starting a second copy of this device.
+#[cfg(unix)]
+pub async fn listen(core: Arc<Core>, path: std::path::PathBuf) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::remove_file(&path);
+    let listener = tokio::net::UnixListener::bind(&path).with_context(|| format!("listening on {}", path.display()))?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let core = core.clone();
+        tokio::spawn(async move {
+            let (read, write) = stream.into_split();
+            let _ = session(core, read, write).await;
+        });
+    }
+}
+
+async fn session(core: Arc<Core>, input: impl AsyncRead + Unpin, output: impl AsyncWrite + Unpin + Send + 'static) -> Result<()> {
     let (out, mut out_rx) = mpsc::unbounded_channel::<Value>();
-    tokio::spawn(async move {
-        use std::io::Write;
+    let writer = tokio::spawn(async move {
+        let mut output = output;
         while let Some(msg) = out_rx.recv().await {
-            let mut stdout = std::io::stdout().lock();
-            let _ = writeln!(stdout, "{msg}");
-            let _ = stdout.flush();
+            if output.write_all(format!("{msg}\n").as_bytes()).await.is_err() || output.flush().await.is_err() {
+                break;
+            }
         }
     });
 
     out.send(json!({ "event": "ready", "node_id": core.id().to_string(), "name": computer_name() })).ok();
     let pairing: Arc<Mutex<Option<JoinHandle<()>>>> = Arc::default();
 
-    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut lines = BufReader::new(input).lines();
     while let Some(line) = lines.next_line().await? {
         let Ok(req) = serde_json::from_str::<Value>(&line) else { continue };
         let (core, out, pairing) = (core.clone(), out.clone(), pairing.clone());
@@ -61,7 +97,10 @@ pub async fn run(core: Arc<Core>) -> Result<()> {
             out.send(reply).ok();
         });
     }
-    core.router.shutdown().await.ok();
+    if let Some(task) = pairing.lock().await.take() {
+        task.abort();
+    }
+    writer.abort();
     Ok(())
 }
 
