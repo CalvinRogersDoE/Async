@@ -22,6 +22,8 @@ Hamachi…) and no ports to open on your router.
   itself to fit the one you punched.
 - **Deliberate pushes only:** resting at the edge, flicking past it, dragging a window to the top, or moving
   the camera in a game never triggers it. How hard and how long you push are adjustable.
+- **Edge glow:** the edge lights up as you push, so you can feel the portal about to open.
+- **Lands where you punched:** the other computer's cursor appears right under the spot you pushed through.
 - **Pair with a code:** one PC shows `ABCD-EFGH`, you type it on the other, done.
 - **Its own secure tunnel**, built on [iroh](https://github.com/n0-computer/iroh). Connections go direct
   between your computers when possible (through home routers via hole punching) and fall back to an
@@ -35,8 +37,20 @@ Hamachi…) and no ports to open on your router.
 
 ## Getting started
 
-1. Download the latest release (or build it, below) and run `Async.exe` on **both** computers. It sits in
-   the system tray.
+Grab the download for each computer from the [latest release](https://github.com/CalvinRogersDoE/Async/releases/latest):
+
+| Computer | Download | What it can do |
+|---|---|---|
+| Windows 10/11 | `Async-win-x64.zip`: unzip and run `Async.exe` | Punch into other computers, and be punched into |
+| macOS (Apple Silicon or Intel) | `Async-macos-universal.tar.gz`: unpack and run `./install.sh` | Be punched into |
+| Linux (x86-64 or ARM64) | `Async-linux-x86_64.tar.gz` / `Async-linux-arm64.tar.gz`: unpack and run `./install.sh` | Be punched into |
+
+Each system runs programs built for it, so there's one download per system, all built from the same
+code. Setting up a Mac or Linux computer is covered in **[docs/hosting.md](docs/hosting.md)**.
+
+On Windows:
+
+1. Run `Async.exe` on the computers involved. It sits in the system tray.
 2. On one computer: tray icon → **Pair a device…** → **Show a code**. On the other: **Pair a device…** →
    **Enter a code**.
 3. In **Settings**, next to the computer you'll punch into, enter the Windows user to sign in as, then
@@ -50,10 +64,11 @@ Turn on **Start Async with Windows** on any computer you want to be able to reac
 | | |
 |---|---|
 | Computer you punch **from** | Windows 10 or 11 |
-| Computer you punch **into** | Windows 10/11 **Pro** or Enterprise with Remote Desktop turned on (Settings → System → Remote Desktop) |
+| Computer you punch **into** | **Windows** 10/11 Pro or Enterprise with Remote Desktop on (Settings → System → Remote Desktop), **macOS** with Screen Sharing on, or **Linux** with Remote Desktop (GNOME, KDE) or a VNC server. See [docs/hosting.md](docs/hosting.md) |
 | Both | Async running, and an internet connection (or the same network) |
 
-Today the remote screen is carried by Windows' own Remote Desktop, sent through Async's tunnel. Because
+Today the remote screen is carried by each system's own screen sharing (Remote Desktop, or VNC for
+Macs, which Async has a built-in viewer for), sent through Async's tunnel. Because
 Async tunnels it, you can block Remote Desktop's port (3389) to the network entirely; the tunnel delivers it
 locally. Windows Remote Desktop signs into the remote PC's account, so its own screen shows the lock screen
 while you're connected; its programs keep running.
@@ -63,7 +78,10 @@ while you're connected; its programs keep running.
 - [x] Push-through trigger, portal effects, sound packs
 - [x] Pairing codes and an encrypted peer-to-peer tunnel (iroh)
 - [x] Remote Desktop through the tunnel
-- [ ] Async's own screen streaming, so Windows Home, macOS and Linux PCs can be punched into
+- [x] Punch into macOS (Screen Sharing over VNC) and Linux (Remote Desktop or VNC)
+- [x] The edge glows as you push; the cursor lands where you punched through
+- [ ] Async's own screen streaming: one format on every system, Windows Home as a host, and punching
+      *out* of macOS and Linux
 - [ ] Terminal mode: punch into a Linux or macOS shell
 - [ ] Map edges to computers (top → desktop, left → laptop…)
 - [ ] Installer and auto-update

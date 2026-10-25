@@ -60,12 +60,18 @@ impl Core {
     }
 }
 
+/// Where the identity and paired devices live: %APPDATA%\Async\core on Windows,
+/// ~/Library/Application Support/Async/core on macOS, $XDG_CONFIG_HOME (or ~/.config)/async/core on Linux.
 fn default_data_dir() -> PathBuf {
-    let base = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("Async").join("core")
+    let home = || std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let base = if cfg!(windows) {
+        std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(home).join("Async")
+    } else if cfg!(target_os = "macos") {
+        home().join("Library/Application Support/Async")
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".config")).join("async")
+    };
+    base.join("core")
 }
 
 #[tokio::main]

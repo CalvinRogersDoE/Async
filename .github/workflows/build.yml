@@ -42,9 +42,66 @@ jobs:
           name: Async-win-x64
           path: Async-win-x64.zip
 
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
+  # macOS and Linux get async-core (what a computer needs to be punched into) plus its installer.
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 builds against an older glibc, so the binary runs on more distributions.
+          - { runner: ubuntu-22.04, name: linux-x86_64 }
+          - { runner: ubuntu-22.04-arm, name: linux-arm64 }
+          - { runner: macos-latest, name: macos-universal }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          files: Async-win-x64.zip
+          targets: ${{ matrix.name == 'macos-universal' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Test async-core
+        working-directory: core
+        run: cargo test --release
+
+      - name: Build async-core
+        working-directory: core
+        run: |
+          if [ "${{ matrix.name }}" = macos-universal ]; then
+            cargo build --release --target aarch64-apple-darwin
+            cargo build --release --target x86_64-apple-darwin
+            lipo -create -output target/release/async-core \
+              target/aarch64-apple-darwin/release/async-core target/x86_64-apple-darwin/release/async-core
+          else
+            cargo build --release
+          fi
+          ./target/release/async-core --version
+
+      - name: Package
+        run: |
+          dir="Async-${{ matrix.name }}"
+          mkdir "$dir"
+          cp core/target/release/async-core packaging/install.sh LICENSE "$dir"/
+          cp docs/hosting.md "$dir"/README.md
+          chmod +x "$dir"/async-core "$dir"/install.sh
+          tar -czf "$dir.tar.gz" "$dir"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Async-${{ matrix.name }}
+          path: Async-${{ matrix.name }}.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, unix]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/*
           generate_release_notes: true

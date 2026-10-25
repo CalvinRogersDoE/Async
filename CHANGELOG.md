@@ -1,6 +1,16 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.2.0 (unreleased)
+
+- The screen edge glows as a push builds, in the colour of what the push will do.
+- The remote cursor lands where you punched through.
+- Punch into **macOS** (Screen Sharing, through Async's new built-in VNC viewer) and **Linux**
+  (GNOME/KDE Remote Desktop, xrdp, or VNC).
+- Devices report their OS and screen sharing; Async picks Remote Desktop or VNC automatically.
+- macOS and Linux downloads: `async-core` plus `install.sh` (background service, screen sharing
+  check, pairing) and a hosting guide.
+
+## 0.1.0 (2026-10-25)
 
 First version.
 
