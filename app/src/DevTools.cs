@@ -161,7 +161,7 @@ static class DevTools
     /// <summary><c>--vnc-snapshot HOST PORT OUT.png [UPDATES]</c>: connect, wait for screen updates, save what arrived.</summary>
     public static int VncSnapshot(string host, int port, string path, int updates)
     {
-        using var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, Size = new Size(400, 300) };
+        using var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, Size = new Size(1600, 1000) };
         var view = new VncView { Dock = DockStyle.Fill };
         form.Controls.Add(view);
         string? error = null;
@@ -169,7 +169,17 @@ static class DevTools
         form.Show();
         view.Connect(host, port, Environment.GetEnvironmentVariable("ASYNC_VNC_USER"), Environment.GetEnvironmentVariable("ASYNC_VNC_PASSWORD"));
         var deadline = DateTime.Now.AddSeconds(15);
-        while (view.Updates < updates && error == null && DateTime.Now < deadline) { view.Refresh(); Application.DoEvents(); Thread.Sleep(5); }
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (view.Updates < updates && error == null && DateTime.Now < deadline) { Application.DoEvents(); Thread.Sleep(1); }
+        double seconds = clock.Elapsed.TotalSeconds;
+        if (error == null)
+        {
+            // How long one full redraw of the portal-sized view takes.
+            using var canvas = new Bitmap(view.Width, view.Height);
+            var paint = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < 10; i++) view.DrawToBitmap(canvas, view.ClientRectangle);
+            Console.Error.WriteLine($"full redraw at {view.Width}x{view.Height}: {paint.Elapsed.TotalMilliseconds / 10:0.0} ms");
+        }
         // ASYNC_VNC_RECONNECT=1: connect a second time on the same viewer, as the portal does.
         if (Environment.GetEnvironmentVariable("ASYNC_VNC_RECONNECT") == "1" && error == null)
         {
@@ -181,7 +191,7 @@ static class DevTools
         }
         using var shot = view.Snapshot();
         shot?.Save(path, ImageFormat.Png);
-        Console.Error.WriteLine(error ?? $"{view.Updates} updates from {view.RemoteName}");
+        Console.Error.WriteLine(error ?? $"{view.Updates} updates from {view.RemoteName} ({view.Updates / seconds:0.0} a second)");
         return error == null && view.Updates >= updates ? 0 : 1;
     }
 

@@ -18,10 +18,16 @@ namespace Async;
 sealed class VncView : Control
 {
     const int Raw = 0, CopyRect = 1, Zrle = 16, DesktopSize = -223;
+    // Pseudo-encodings: the cursor's shape sent apart from the screen (so it's drawn here and moves
+    // without waiting for frames), and the server sending changes without being asked for each one.
+    const int CursorShape = -239, Fence = -312, ContinuousUpdates = -313;
 
     readonly object fbLock = new();
+    // The screen lives in a plain pixel array the decoders write straight into; the bitmap only
+    // wraps that memory for drawing. (A GDI+ call per row is what made updates slow.)
+    uint[] pixels = [];
+    GCHandle pin;
     Bitmap? fb;
-    // The bitmap's size, kept apart: GDI+ refuses even fb.Width while another thread has it locked.
     int fbW, fbH;
     Size FbSize => new(fbW, fbH);
     TcpClient? client;
@@ -30,6 +36,15 @@ sealed class VncView : Control
     // ZRLE's zlib stream lasts one connection; each connection starts a fresh one.
     ZlibFeed zfeed = new();
     ZLibStream? zlib;
+    readonly byte[] zbuf = new byte[1 << 16];
+    int zpos, zlen;
+    // The server keeps sending changes without being asked each time (the ContinuousUpdates extension).
+    bool continuous;
+    // What arrives, written to the log every few seconds while connected.
+    long statBytes;
+    int statUpdates;
+    readonly HashSet<int> statEncodings = [];
+    readonly System.Diagnostics.Stopwatch statClock = new();
     Task reader = Task.CompletedTask;
     int buttons;
 
@@ -74,6 +89,11 @@ sealed class VncView : Control
                 zlib?.Dispose();
                 zlib = null;
                 zfeed = new ZlibFeed();
+                zpos = zlen = 0;
+                continuous = false;
+                statClock.Reset();
+                (statUpdates, statBytes) = (0, 0);
+                statEncodings.Clear();
                 client = new TcpClient { NoDelay = true };
                 await client.ConnectAsync(host, port, token);
                 net = client.GetStream();
@@ -161,7 +181,7 @@ sealed class VncView : Control
         pf[14] = 16; pf[15] = 8; pf[16] = 0;
         Write(pf);
 
-        int[] encodings = [Zrle, CopyRect, Raw, DesktopSize];
+        int[] encodings = [Zrle, CopyRect, Raw, DesktopSize, CursorShape, Fence, ContinuousUpdates];
         var enc = new byte[4 + 4 * encodings.Length];
         enc[0] = 2;
         BinaryPrimitives.WriteUInt16BigEndian(enc.AsSpan(2), (ushort)encodings.Length);
@@ -250,13 +270,30 @@ sealed class VncView : Control
     {
         switch (ReadU8())
         {
-            case 0: ReadUpdate(); RequestUpdate(incremental: true); break;
+            case 0: ReadUpdate(); break;
             case 1: ReadBytes(1); ReadU16(); ReadBytes(6 * ReadU16()); break; // colour map: not used in true colour
             case 2: break; // bell
             case 3: // the remote clipboard changed
                 ReadBytes(3);
                 var text = Encoding.Latin1.GetString(ReadBytes((int)ReadU32()));
                 BeginInvoke(() => { try { if (text.Length > 0) Clipboard.SetText(text); } catch { } });
+                break;
+            case 150: // EndOfContinuousUpdates: the server can stream; turn it on (as noVNC does)
+                if (!continuous) { continuous = true; EnableContinuous(); }
+                break;
+            case 248: // a fence: answer it with the same payload (we handle messages strictly in order)
+                ReadBytes(3);
+                uint flags = ReadU32();
+                var payload = ReadBytes(ReadU8());
+                if ((flags & 0x80000000) != 0)
+                {
+                    var reply = new byte[9 + payload.Length];
+                    reply[0] = 248;
+                    BinaryPrimitives.WriteUInt32BigEndian(reply.AsSpan(4), flags & 7);
+                    reply[8] = (byte)payload.Length;
+                    payload.CopyTo(reply, 9);
+                    Write(reply);
+                }
                 break;
             default: throw new VncException("The screen sharing server sent something Async doesn't understand.");
         }
@@ -266,24 +303,128 @@ sealed class VncView : Control
     {
         ReadBytes(1);
         int rects = ReadU16();
+        // Ask for the next one straight away, so the server gathers changes while this one decodes.
+        if (!continuous) RequestUpdate(incremental: true);
         var dirty = Rectangle.Empty;
         for (int i = 0; i < rects; i++)
         {
             int x = ReadU16(), y = ReadU16(), w = ReadU16(), h = ReadU16();
             int encoding = ReadS32();
+            statEncodings.Add(encoding);
             switch (encoding)
             {
                 case Raw: DecodeRaw(x, y, w, h); break;
                 case CopyRect: DecodeCopyRect(x, y, w, h); break;
                 case Zrle: DecodeZrle(x, y, w, h); break;
-                case DesktopSize: ResizeFramebuffer(w, h); dirty = new Rectangle(0, 0, w, h); continue;
+                case DesktopSize:
+                    ResizeFramebuffer(w, h);
+                    if (continuous) EnableContinuous();
+                    dirty = new Rectangle(0, 0, w, h);
+                    continue;
+                case CursorShape: ReadCursor(x, y, w, h); continue;
                 default: throw new VncException($"Unsupported VNC encoding {encoding}.");
             }
             var r = new Rectangle(x, y, w, h);
             dirty = dirty.IsEmpty ? r : Rectangle.Union(dirty, r);
         }
         Updates++;
+        LogStats();
         if (!dirty.IsEmpty && IsHandleCreated) BeginInvoke(() => Invalidate(ToScreen(dirty)));
+    }
+
+    void EnableContinuous()
+    {
+        var msg = new byte[10];
+        msg[0] = 150;
+        msg[1] = 1;
+        BinaryPrimitives.WriteUInt16BigEndian(msg.AsSpan(6), (ushort)fbW);
+        BinaryPrimitives.WriteUInt16BigEndian(msg.AsSpan(8), (ushort)fbH);
+        Write(msg);
+    }
+
+    // ---------- cursor ----------
+
+    IntPtr cursorHandle;
+    Bitmap? cursorImage;
+    Point cursorHotspot;
+
+    /// <summary>The remote cursor's picture (pixels, then a 1-bit mask) and hotspot; shown as this control's cursor.</summary>
+    void ReadCursor(int hotX, int hotY, int w, int h)
+    {
+        var data = ReadBytes(w * h * 4);
+        int stride = (w + 7) / 8;
+        var mask = ReadBytes(stride * h);
+        if (w == 0 || h == 0) return;
+        var image = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        var bits = image.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        var argb = new int[w * h];
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+            {
+                bool shown = (mask[j * stride + i / 8] & (0x80 >> (i % 8))) != 0;
+                argb[j * w + i] = shown ? (int)(BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan((j * w + i) * 4)) | 0xff000000) : 0;
+            }
+        Marshal.Copy(argb, 0, bits.Scan0, argb.Length);
+        image.UnlockBits(bits);
+        if (!IsHandleCreated) { image.Dispose(); return; }
+        BeginInvoke(() =>
+        {
+            cursorImage?.Dispose();
+            cursorImage = image;
+            cursorHotspot = new Point(hotX, hotY);
+            ApplyCursor();
+        });
+    }
+
+    /// <summary>Makes a Windows cursor from the remote one, at the size the remote screen is shown.</summary>
+    void ApplyCursor()
+    {
+        if (cursorImage == null || fbW == 0) return;
+        float scale = (float)Fit().Width / fbW;
+        int w = Math.Max(1, (int)Math.Round(cursorImage.Width * scale)), h = Math.Max(1, (int)Math.Round(cursorImage.Height * scale));
+        using var sized = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(sized))
+        {
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.DrawImage(cursorImage, 0, 0, w, h);
+        }
+        IntPtr icon = sized.GetHicon();
+        if (!GetIconInfo(icon, out var info)) { DestroyIcon(icon); return; }
+        info.fIcon = false;
+        info.xHotspot = (int)(cursorHotspot.X * scale);
+        info.yHotspot = (int)(cursorHotspot.Y * scale);
+        IntPtr made = CreateIconIndirect(ref info);
+        DeleteObject(info.hbmMask);
+        DeleteObject(info.hbmColor);
+        DestroyIcon(icon);
+        if (made == IntPtr.Zero) return;
+        Cursor = new Cursor(made);
+        if (cursorHandle != IntPtr.Zero) DestroyIcon(cursorHandle);
+        cursorHandle = made;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct BitmapInfoHeader { public int biSize, biWidth, biHeight; public short biPlanes, biBitCount; public int biCompression, biSizeImage, biXPelsPerMeter, biYPelsPerMeter, biClrUsed, biClrImportant; }
+    [DllImport("gdi32.dll")] static extern int StretchDIBits(IntPtr hdc, int x, int y, int w, int h, int sx, int sy, int sw, int sh, IntPtr bits, ref BitmapInfoHeader info, uint usage, uint rop);
+    [DllImport("gdi32.dll")] static extern int SetStretchBltMode(IntPtr hdc, int mode);
+    [DllImport("gdi32.dll")] static extern bool SetBrushOrgEx(IntPtr hdc, int x, int y, IntPtr old);
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct IconInfo { public bool fIcon; public int xHotspot, yHotspot; public IntPtr hbmMask, hbmColor; }
+    [DllImport("user32.dll")] static extern bool GetIconInfo(IntPtr icon, out IconInfo info);
+    [DllImport("user32.dll")] static extern IntPtr CreateIconIndirect(ref IconInfo info);
+    [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr icon);
+    [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr obj);
+
+    void LogStats()
+    {
+        statUpdates++;
+        if (!statClock.IsRunning) statClock.Start();
+        double seconds = statClock.Elapsed.TotalSeconds;
+        if (seconds < 5) return;
+        Log.Write($"VNC {fbW}x{fbH}: {statUpdates / seconds:0.0} updates/s, {statBytes / seconds / 1e6:0.00} MB/s, encodings {string.Join(",", statEncodings)}{(continuous ? ", continuous" : "")}");
+        (statUpdates, statBytes) = (0, 0);
+        statClock.Restart();
     }
 
     void DecodeRaw(int x, int y, int w, int h)
@@ -292,7 +433,7 @@ sealed class VncView : Control
         for (int j = 0; j < h; j++)
         {
             ReadInto(row);
-            WriteRow(x, y + j, row, 0, w);
+            lock (fbLock) WriteRow(x, y + j, MemoryMarshal.Cast<byte, uint>(row.AsSpan()));
         }
     }
 
@@ -301,11 +442,16 @@ sealed class VncView : Control
         int sx = ReadU16(), sy = ReadU16();
         lock (fbLock)
         {
-            if (fb == null) return;
-            using var copy = fb.Clone(new Rectangle(sx, sy, w, h), fb.PixelFormat);
-            using var g = Graphics.FromImage(fb);
-            g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
-            g.DrawImageUnscaled(copy, x, y);
+            w = Math.Min(w, Math.Min(fbW - sx, fbW - x));
+            h = Math.Min(h, Math.Min(fbH - sy, fbH - y));
+            if (w <= 0 || h <= 0) return;
+            // Rows in the order that never overwrites one still to be copied (a span copy handles overlap within a row).
+            bool down = y > sy;
+            for (int k = 0; k < h; k++)
+            {
+                int j = down ? h - 1 - k : k;
+                pixels.AsSpan((sy + j) * fbW + sx, w).CopyTo(pixels.AsSpan((y + j) * fbW + x, w));
+            }
         }
     }
 
@@ -315,9 +461,13 @@ sealed class VncView : Control
         int length = (int)ReadU32();
         zfeed.Append(ReadBytes(length));
         zlib ??= new ZLibStream(zfeed, CompressionMode.Decompress);
+        lock (fbLock) DecodeZrleTiles(x, y, w, h);
+    }
+
+    void DecodeZrleTiles(int x, int y, int w, int h)
+    {
         var tile = new uint[64 * 64];
         var palette = new uint[128];
-        var rowBytes = new byte[64 * 4];
 
         for (int ty = y; ty < y + h; ty += 64)
         for (int tx = x; tx < x + w; tx += 64)
@@ -364,22 +514,31 @@ sealed class VncView : Control
             }
             else throw new VncException($"Bad ZRLE tile type {sub}.");
 
-            for (int j = 0; j < th; j++)
-            {
-                Buffer.BlockCopy(tile, j * tw * 4, rowBytes, 0, tw * 4);
-                WriteRow(tx, ty + j, rowBytes, 0, tw);
-            }
+            for (int j = 0; j < th; j++) WriteRow(tx, ty + j, tile.AsSpan(j * tw, tw));
         }
     }
 
     int ZByte()
     {
-        int b = zlib!.ReadByte();
-        if (b < 0) throw new VncException("Screen data ended early.");
-        return b;
+        if (zpos == zlen)
+        {
+            zlen = Math.Max(0, zlib!.Read(zbuf, 0, zbuf.Length));
+            zpos = 0;
+            if (zlen == 0) throw new VncException("Screen data ended early.");
+        }
+        return zbuf[zpos++];
     }
 
-    uint ZPixel() => (uint)(ZByte() | ZByte() << 8 | ZByte() << 16);
+    uint ZPixel()
+    {
+        if (zlen - zpos >= 3)
+        {
+            uint c = (uint)(zbuf[zpos] | zbuf[zpos + 1] << 8 | zbuf[zpos + 2] << 16);
+            zpos += 3;
+            return c;
+        }
+        return (uint)(ZByte() | ZByte() << 8 | ZByte() << 16);
+    }
 
     int ZRun()
     {
@@ -394,23 +553,27 @@ sealed class VncView : Control
     {
         lock (fbLock)
         {
-            fb?.Dispose();
-            fb = new Bitmap(Math.Max(1, w), Math.Max(1, h), PixelFormat.Format32bppRgb);
-            (fbW, fbH) = (fb.Width, fb.Height);
+            FreeFramebuffer();
+            (fbW, fbH) = (Math.Max(1, w), Math.Max(1, h));
+            pixels = new uint[fbW * fbH];
+            pin = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+            fb = new Bitmap(fbW, fbH, fbW * 4, PixelFormat.Format32bppRgb, pin.AddrOfPinnedObject());
         }
     }
 
-    void WriteRow(int x, int y, byte[] src, int offset, int pixels)
+    void FreeFramebuffer()
     {
-        lock (fbLock)
-        {
-            if (fb == null || y < 0 || y >= fbH || x < 0) return;
-            pixels = Math.Min(pixels, fbW - x);
-            if (pixels <= 0) return;
-            var data = fb.LockBits(new Rectangle(x, y, pixels, 1), ImageLockMode.WriteOnly, PixelFormat.Format32bppRgb);
-            Marshal.Copy(src, offset, data.Scan0, pixels * 4);
-            fb.UnlockBits(data);
-        }
+        fb?.Dispose();
+        fb = null;
+        if (pin.IsAllocated) pin.Free();
+    }
+
+    /// <summary>Copies one row of pixels into the screen, clipped to it. Call with fbLock held.</summary>
+    void WriteRow(int x, int y, ReadOnlySpan<uint> src)
+    {
+        if (y < 0 || y >= fbH || x < 0 || x >= fbW) return;
+        int n = Math.Min(src.Length, fbW - x);
+        src[..n].CopyTo(pixels.AsSpan(y * fbW + x, n));
     }
 
     Rectangle Fit()
@@ -436,14 +599,25 @@ sealed class VncView : Control
         lock (fbLock)
         {
             if (fb == null) return;
-            e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
-            e.Graphics.DrawImage(fb, Fit());
+            // GDI's halftone stretch straight from the pixel array: smooth like GDI+'s high-quality
+            // scaling, at a fraction of the cost (it runs on the thread that also handles the mouse).
+            var fit = Fit();
+            var info = new BitmapInfoHeader { biSize = 40, biWidth = fbW, biHeight = -fbH, biPlanes = 1, biBitCount = 32 };
+            IntPtr hdc = e.Graphics.GetHdc();
+            try
+            {
+                SetStretchBltMode(hdc, 4); // HALFTONE
+                SetBrushOrgEx(hdc, 0, 0, IntPtr.Zero);
+                StretchDIBits(hdc, fit.X, fit.Y, fit.Width, fit.Height, 0, 0, fbW, fbH, pin.AddrOfPinnedObject(), ref info, 0, 0x00CC0020);
+            }
+            finally { e.Graphics.ReleaseHdc(hdc); }
         }
     }
 
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
+        ApplyCursor();
         Invalidate();
     }
 
@@ -554,7 +728,7 @@ sealed class VncView : Control
     void TryWrite(byte[] data) { try { Write(data); } catch { } }
 
     byte[] ReadBytes(int n) { var b = new byte[n]; ReadInto(b); return b; }
-    void ReadInto(byte[] b) => net!.ReadExactly(b, 0, b.Length);
+    void ReadInto(byte[] b) { net!.ReadExactly(b, 0, b.Length); statBytes += b.Length; }
     int ReadU8() { int b = net!.ReadByte(); if (b < 0) throw new VncException("The screen sharing connection closed."); return b; }
     int ReadU16() => BinaryPrimitives.ReadUInt16BigEndian(ReadBytes(2));
     uint ReadU32() => BinaryPrimitives.ReadUInt32BigEndian(ReadBytes(4));
@@ -563,7 +737,14 @@ sealed class VncView : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { Disconnect(); fb?.Dispose(); zlib?.Dispose(); }
+        if (disposing)
+        {
+            Disconnect();
+            lock (fbLock) FreeFramebuffer();
+            zlib?.Dispose();
+            cursorImage?.Dispose();
+            if (cursorHandle != IntPtr.Zero) DestroyIcon(cursorHandle);
+        }
         base.Dispose(disposing);
     }
 

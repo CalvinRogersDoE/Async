@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2 (2026-10-25)
+
+- Much smoother portals into a Mac or Linux screen: screen updates are decoded straight into memory
+  (about five times faster) and drawn with a cheaper scaler, and the next update is asked for
+  before the current one is drawn.
+- Uses continuous updates when the screen sharing server offers them, so it streams changes
+  without waiting to be asked each time.
+- The remote cursor is drawn locally from its shape, so it follows the mouse without waiting
+  for screen updates.
+
 ## 0.3.1 (2026-10-25)
 
 - Punching into a Mac signs in with the Mac's own user name and password (Apple's screen sharing
