@@ -1,0 +1,10 @@
+# Build output
+bin/
+obj/
+target/
+dist/
+*.user
+.vs/
+
+# Private notes kept next to the code, not part of the project
+BORROWED.md

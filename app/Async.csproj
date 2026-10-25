@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Async</AssemblyName>
+    <RootNamespace>Async</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>assets\async.ico</ApplicationIcon>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Product>Async</Product>
+    <Authors>Claude via Calvin</Authors>
+    <Company>Claude via Calvin</Company>
+    <Description>Push your mouse through the top of a screen to punch a portal into another computer.</Description>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <!-- The Rust half lives in ../core. Build it first (cargo build release); pass AsyncCoreExe to use another path. -->
+  <PropertyGroup>
+    <AsyncCoreExe Condition="'$(AsyncCoreExe)' == ''">$(MSBuildThisFileDirectory)..\core\target\release\async-core.exe</AsyncCoreExe>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(AsyncCoreExe)" Link="async-core.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Condition="Exists('$(AsyncCoreExe)')" />
+  </ItemGroup>
+
+</Project>

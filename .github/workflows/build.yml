@@ -1,0 +1,50 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test and build async-core
+        working-directory: core
+        run: |
+          cargo test --release
+          cargo build --release
+
+      - name: Publish Async
+        run: dotnet publish app -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Remove-Item dist\*.pdb -ErrorAction SilentlyContinue
+          Copy-Item README.md, LICENSE dist\
+          Compress-Archive -Path dist\* -DestinationPath Async-win-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Async-win-x64
+          path: Async-win-x64.zip
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Async-win-x64.zip
+          generate_release_notes: true
