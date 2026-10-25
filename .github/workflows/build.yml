@@ -17,9 +17,17 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Microsoft's download server sometimes refuses; the runner's preinstalled .NET 10 then does the job.
       - uses: actions/setup-dotnet@v6
+        continue-on-error: true
         with:
           dotnet-version: "10.0.x"
+
+      - name: Check .NET 10
+        shell: pwsh
+        run: |
+          dotnet --list-sdks
+          if (-not (dotnet --list-sdks | Select-String '^10\.')) { throw ".NET 10 SDK isn't available" }
 
       - name: Test and build async-core
         working-directory: core
