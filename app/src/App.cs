@@ -22,6 +22,8 @@ sealed class AsyncApp : ApplicationContext
     readonly ToolStripMenuItem startup;
     SettingsForm? settingsForm;
     bool busy;
+    /// <summary>The edge the open portal came through.</summary>
+    Edge entry = Edge.Top;
 
     public AsyncApp(string[] args)
     {
@@ -31,14 +33,13 @@ sealed class AsyncApp : ApplicationContext
         portal = new PortalForm(cfg, core, icon);
         portal.StatusChanged += s => tray!.Text = Trim($"Async: {s}");
         edges = new EdgeWatcher(cfg);
-        edges.PushedTop += OnPushTop;
-        edges.PushedBottom += OnPushBottom;
+        edges.Pushed += OnPush;
         edges.Hotkey += OnHotkey;
         edges.Pushing += OnPushing;
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Punch in here", null, (_, _) => OnHotkey());
-        menu.Items.Add("Close portal", null, (_, _) => { if (portal.Visible) Run(Close(CursorX(), fromBottom: false)); });
+        menu.Items.Add("Close portal", null, (_, _) => { if (portal.Visible) Run(Close(entry, Cursor.Position)); });
         menu.Items.Add("Disconnect", null, (_, _) => portal.Disconnect());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Pair a device…", null, (_, _) => PairDialog.ShowFor(core, icon));
@@ -66,42 +67,52 @@ sealed class AsyncApp : ApplicationContext
 
     // ---------- triggers ----------
 
+    enum Act { None, Open, Close }
+
+    /// <summary>
+    /// What pushing through an edge does. A mapped edge opens its computer (switching computers if a
+    /// portal to another one is open there); the edge the portal came through, or the one opposite
+    /// it, closes it.
+    /// </summary>
+    (Act, string?) Decide(Screen s, Edge e)
+    {
+        string? device = cfg.DeviceFor(s.DeviceName, e);
+        if (device != null && core.Devices.All(d => d.Id != device)) device = null;
+        if (portal.Visible && portal.ScreenName == s.DeviceName)
+        {
+            if (device != null && device != portal.Device) return (Act.Open, device);
+            if (e == entry && cfg.TopPushToggles) return (Act.Close, null);
+            if (e == entry.Opposite() && cfg.BottomPushCloses) return (Act.Close, null);
+            if (device != null && cfg.TopPushToggles) return (Act.Close, null);
+            return (Act.None, null);
+        }
+        return device != null ? (Act.Open, device) : (Act.None, null);
+    }
+
     /// <summary>Light up the edge while a push builds, but only where the push would actually do something.</summary>
-    void OnPushing(Screen s, Point p, bool topEdge, float progress)
+    void OnPushing(Screen s, Edge e, Point p, float progress)
     {
         if (busy) return;
-        bool portalHere = portal.Visible && portal.ScreenName == s.DeviceName;
-        if (topEdge)
-            glow.Push(s, p, topEdge, progress, portalHere && cfg.TopPushToggles ? cfg.OutColor : cfg.InColor);
-        else if (portalHere && cfg.BottomPushCloses)
-            glow.Push(s, p, topEdge, progress, cfg.OutColor);
+        var (act, _) = Decide(s, e);
+        if (act != Act.None) glow.Push(s, p, e, progress, act == Act.Close ? cfg.OutColor : cfg.InColor);
     }
 
-    void OnPushTop(Screen s, Point p)
+    void OnPush(Screen s, Edge e, Point p)
     {
         glow.Clear();
         if (busy) return;
-        if (!portal.Visible) Run(Open(s, p.X));
-        else if (portal.ScreenName != s.DeviceName) Run(Move(s, p.X));
-        else if (cfg.TopPushToggles) Run(Close(p.X, fromBottom: false));
-    }
-
-    void OnPushBottom(Screen s, Point p)
-    {
-        glow.Clear();
-        if (busy || !portal.Visible || portal.ScreenName != s.DeviceName || !cfg.BottomPushCloses) return;
-        Run(Close(p.X, fromBottom: true));
+        var (act, device) = Decide(s, e);
+        if (act == Act.Close) Run(Close(e, p));
+        else if (act == Act.Open) Run(portal.Visible ? Switch(s, e, p, device!) : Open(s, e, p, device!));
     }
 
     void OnHotkey()
     {
         if (busy) return;
-        int x = CursorX();
-        if (portal.Visible) Run(Close(x, fromBottom: false));
-        else Run(Open(Screen.FromPoint(Cursor.Position), x));
+        var p = Cursor.Position;
+        if (portal.Visible) Run(Close(entry, p));
+        else Run(Open(Screen.FromPoint(p), Edge.Top, p, cfg.TargetDevice != "" ? cfg.TargetDevice : core.Devices.FirstOrDefault()?.Id ?? ""));
     }
-
-    static int CursorX() => Cursor.Position.X;
 
     async void Run(Task work)
     {
@@ -110,19 +121,20 @@ sealed class AsyncApp : ApplicationContext
 
     // ---------- animations ----------
 
-    async Task Open(Screen s, int screenX)
+    async Task Open(Screen s, Edge e, Point at, string device)
     {
         busy = true;
         Native.timeBeginPeriod(1);
         try
         {
             var b = s.Bounds;
-            var c = new PointF(Math.Clamp(screenX - b.Left, 0, b.Width), 0);
+            var c = e.Point(b, at);
             float R = FarCorner(c, b.Size);
             const float vortexR = 46;
             var col = cfg.InColor;
+            entry = e;
 
-            portal.ShowOn(s);
+            portal.ShowOn(s, device);
             fx.Begin(b);
             if (cfg.Sound) soundIn.Play();
 
@@ -154,7 +166,7 @@ sealed class AsyncApp : ApplicationContext
             portal.FocusSession();
             // Land on the other PC right where you punched through: nudge the pointer just inside
             // the edge so Remote Desktop moves the remote cursor to the same spot.
-            Native.SetCursorPos(b.Left + (int)c.X, b.Top + 4);
+            Native.SetCursorPos(b.Left + Math.Clamp((int)c.X, 4, b.Width - 5), b.Top + Math.Clamp((int)c.Y, 4, b.Height - 5));
 
             await Anim.Run(Ms(260), t =>
             {
@@ -173,14 +185,14 @@ sealed class AsyncApp : ApplicationContext
         }
     }
 
-    async Task Close(int screenX, bool fromBottom)
+    async Task Close(Edge e, Point at)
     {
         busy = true;
         Native.timeBeginPeriod(1);
         try
         {
             var b = portal.Target;
-            var c = new PointF(Math.Clamp(screenX - b.Left, 0, b.Width), fromBottom ? b.Height : 0);
+            var c = e.Point(b, at);
             float R = FarCorner(c, b.Size);
             var col = cfg.OutColor;
 
@@ -219,10 +231,12 @@ sealed class AsyncApp : ApplicationContext
         }
     }
 
-    async Task Move(Screen s, int screenX)
+    /// <summary>Close the open portal (wherever it is) and open one through this edge instead.</summary>
+    async Task Switch(Screen s, Edge e, Point at, string device)
     {
-        await Close(portal.Target.Left + portal.Target.Width / 2, fromBottom: false);
-        await Open(s, screenX);
+        var b = portal.Target;
+        await Close(entry, new Point(b.Left + b.Width / 2, b.Top + b.Height / 2));
+        await Open(s, e, at, device);
     }
 
     int Ms(int ms) => (int)(ms * slowmo);
@@ -250,7 +264,9 @@ sealed class AsyncApp : ApplicationContext
         else
         {
             var name = core.Devices.FirstOrDefault(d => d.Id == cfg.TargetDevice)?.Name ?? core.Devices[0].Name;
-            tray.ShowBalloonTip(3000, "Async", $"Push through the top of any screen to punch into {name}. {cfg.Hotkey} works too.", ToolTipIcon.None);
+            tray.ShowBalloonTip(3000, "Async", cfg.EdgeDevices == null
+                ? $"Push through the top of any screen to punch into {name}. {cfg.Hotkey} works too."
+                : $"Push through a screen edge to punch into another computer. {cfg.Hotkey} opens {name}.", ToolTipIcon.None);
         }
     }
 

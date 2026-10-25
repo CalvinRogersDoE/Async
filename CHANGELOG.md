@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+- **Screen edges:** every outer edge of every monitor can open a different paired computer. Settings
+  shows your monitors as arranged; click an edge to pick. Pushing through an edge mapped to another
+  computer while a portal is open switches to it.
+- The opposite edge closes the portal (it was always the bottom).
+- Linux desktops without built-in screen sharing (Linux Mint/Cinnamon, MATE, Xfce): `install.sh` sets
+  up x11vnc, reachable only from the computer itself.
+- `async-core pair-host` and `peers` run alongside the background service.
+- Rewritten step-by-step guide for setting up a Mac or Linux computer.
+
 ## 0.2.0 (2026-10-25)
 
 - The screen edge glows as a push builds, in the colour of what the push will do.

@@ -133,10 +133,22 @@ static class DevTools
             ShowInTaskbar = false,
         };
         form.Show();
+        // Show the edge map doing something: two made-up computers on this PC's real monitors.
+        if (Find<EdgeMap>(form) is { } map)
+        {
+            Device[] demo = [new("demo-desktop", "Desktop"), new("demo-laptop", "Laptop")];
+            map.SetDevices(demo);
+            var screens = Screen.AllScreens.OrderBy(s => s.Bounds.Left).ToArray();
+            map.Mapping[Settings.EdgeKey(screens[0].DeviceName, Edge.Top)] = demo[0].Id;
+            map.Mapping[Settings.EdgeKey(screens[^1].DeviceName, screens.Length > 1 ? Edge.Right : Edge.Left)] = demo[1].Id;
+        }
         using var bmp = new Bitmap(form.Width, form.Height);
         form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));
         bmp.Save(path, ImageFormat.Png);
     }
+
+    static T? Find<T>(Control root) where T : Control =>
+        root as T ?? root.Controls.Cast<Control>().Select(Find<T>).FirstOrDefault(c => c != null);
 
     // ---------- VNC check ----------
 

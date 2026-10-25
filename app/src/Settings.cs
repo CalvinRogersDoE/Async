@@ -7,8 +7,13 @@ sealed class Settings
     public static readonly string Folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Async");
     public static readonly string FilePath = Path.Combine(Folder, "settings.json");
 
-    /// <summary>The paired device the portal opens into (its device id).</summary>
+    /// <summary>The paired device the hotkey and tray icon open (its device id).</summary>
     public string TargetDevice { get; set; } = "";
+    /// <summary>
+    /// Which paired device each monitor edge punches into, keyed by <see cref="EdgeKey"/>. Null until
+    /// set in Settings, which means: every free top edge opens <see cref="TargetDevice"/>.
+    /// </summary>
+    public Dictionary<string, string>? EdgeDevices { get; set; }
     /// <summary>The Windows account to sign in as on each paired device, by device id.</summary>
     public Dictionary<string, string> DeviceUsers { get; set; } = new();
 
@@ -45,6 +50,15 @@ sealed class Settings
     public bool IsConfigured => !string.IsNullOrWhiteSpace(TargetDevice);
 
     public string UserFor(string device) => DeviceUsers.TryGetValue(device, out var u) ? u : "";
+
+    public static string EdgeKey(string screen, Edge e) => $"{screen}/{e}";
+
+    /// <summary>The device pushing through this edge opens, or null if the edge does nothing.</summary>
+    public string? DeviceFor(string screen, Edge e)
+    {
+        if (EdgeDevices == null) return e == Edge.Top && IsConfigured ? TargetDevice : null;
+        return EdgeDevices.TryGetValue(EdgeKey(screen, e), out var d) && d != "" ? d : null;
+    }
 
     /// <summary>Windows Credential Manager entry holding a device's password.</summary>
     public static string CredentialTarget(string device) => $"Async:{device}";

@@ -38,7 +38,8 @@ stop_service() {
 
 if [ "${1:-}" = "--uninstall" ]; then
   stop_service
-  rm -f "$exe" "${agent:-}" "${unit:-}"
+  [ "$os" = Linux ] && systemctl --user disable --now async-vnc.service 2>/dev/null || true
+  rm -f "$exe" "${agent:-}" "${unit:-}" "${unit:+$(dirname "$unit")/async-vnc.service}"
   [ "$os" = Linux ] && systemctl --user daemon-reload 2>/dev/null || true
   say "Removed async-core. Your identity and paired devices are still in: $data_dir"
   exit 0
@@ -95,6 +96,38 @@ fi
 
 # Is there screen sharing for paired computers to reach?
 listening() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+
+# Desktops without built-in sharing (Cinnamon, MATE, Xfce… on X11): share the screen with x11vnc,
+# reachable only from this computer, so only Async's tunnel can get to it.
+if [ "$os" = Linux ] && ! listening 3389 && ! listening 5900 && [ "${XDG_SESSION_TYPE:-x11}" != wayland ]; then
+  if command -v x11vnc >/dev/null; then
+    if [ ! -f "$HOME/.vnc/passwd" ] && [ -t 0 ]; then
+      say "Pick a screen sharing password (you'll type it once more on your Windows PC):"
+      x11vnc -storepasswd
+    fi
+    if [ -f "$HOME/.vnc/passwd" ]; then
+      cat > "$(dirname "$unit")/async-vnc.service" <<EOF
+[Unit]
+Description=Screen sharing for Async (x11vnc on the desktop, local only)
+
+[Service]
+ExecStart=$(command -v x11vnc) -display :0 -auth guess -localhost -rfbport 5900 -rfbauth %h/.vnc/passwd -forever -shared -repeat -quiet
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+      systemctl --user daemon-reload
+      systemctl --user enable --now async-vnc.service
+      sleep 2
+    fi
+  else
+    warn "Your desktop has no screen sharing built in. Install it with:"
+    warn "    sudo apt install x11vnc     (Fedora: sudo dnf install x11vnc)"
+    warn "then run ./install.sh again and it sets the rest up."
+  fi
+fi
 if listening 3389; then
   say "Remote Desktop is on: paired Windows PCs will connect with it."
 elif listening 5900; then

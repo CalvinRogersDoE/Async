@@ -41,11 +41,14 @@ sealed class PortalForm : Form
     readonly Label status;
     readonly System.Windows.Forms.Timer poll = new() { Interval = 500 };
     dynamic? ocx;
-    bool eventsHooked, loggedIn, connecting, usingVnc;
+    bool eventsHooked, loggedIn, connecting, usingVnc, switching, quietDisconnect;
     (int W, int H, int Scale) fitted;
+    string sessionDevice = "";
 
     public Rectangle Target { get; private set; }
     public string? ScreenName { get; private set; }
+    /// <summary>The paired device this portal shows.</summary>
+    public string Device { get; private set; } = "";
     public bool Connected => usingVnc ? vnc.IsConnected : State == 1;
     public event Action<string>? StatusChanged;
 
@@ -92,8 +95,9 @@ sealed class PortalForm : Form
     }
 
     /// <summary>Puts the (still invisible) window over a monitor and makes sure a session is on its way.</summary>
-    public void ShowOn(Screen s)
+    public void ShowOn(Screen s, string device)
     {
+        Device = device;
         Target = s.Bounds;
         ScreenName = s.DeviceName;
         _ = Handle;
@@ -145,7 +149,15 @@ sealed class PortalForm : Form
         {
             ocx ??= rdp.GetOcx();
             HookEvents();
-            if (!Connected) Connect();
+            if (Connected && sessionDevice != Device)
+            {
+                // Another computer this time: drop the old session, and Poll connects once it's gone.
+                quietDisconnect = !usingVnc;
+                Disconnect();
+                switching = true;
+                SetStatus($"Opening a portal to {TargetName}…");
+            }
+            else if (!Connected) Connect();
             else if (!usingVnc) Fit();
         }
         catch (Exception e)
@@ -155,17 +167,18 @@ sealed class PortalForm : Form
         }
     }
 
-    string TargetName => core.Devices.FirstOrDefault(d => d.Id == cfg.TargetDevice)?.Name ?? "the other PC";
+    string TargetName => core.Devices.FirstOrDefault(d => d.Id == Device)?.Name ?? "the other PC";
 
     async void Connect()
     {
         if (connecting) return;
-        if (!cfg.IsConfigured || core.Devices.All(d => d.Id != cfg.TargetDevice))
+        if (core.Devices.All(d => d.Id != Device))
         {
             SetStatus("No device to punch into yet.\n\nRight-click the Async tray icon → Settings… and pair one.");
             return;
         }
-        string device = cfg.TargetDevice, user = cfg.UserFor(device);
+        string device = Device, user = cfg.UserFor(device);
+        sessionDevice = device;
         var (savedUser, pass) = Creds.Read(Settings.CredentialTarget(device));
         if (!string.IsNullOrEmpty(savedUser)) user = savedUser;
 
@@ -265,6 +278,7 @@ sealed class PortalForm : Form
     void OnDisconnected(int reason)
     {
         loggedIn = false;
+        if (quietDisconnect) { quietDisconnect = false; return; }
         string why = $"code {reason}";
         try { why = (string)ocx!.GetErrorDescription((uint)reason, (uint)(int)ocx.ExtendedDisconnectReason); } catch { }
         Log.Write($"Disconnected: {reason} {why}");
@@ -276,6 +290,7 @@ sealed class PortalForm : Form
 
     void Poll()
     {
+        if (switching && State == 0 && !vnc.IsConnected) { switching = false; Connect(); }
         bool show = !Connected;
         if (status.Visible != show) status.Visible = show;
         if (show) status.BringToFront();

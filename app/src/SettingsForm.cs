@@ -13,11 +13,12 @@ sealed class SettingsForm : Form
     readonly Dictionary<string, TextBox> deviceUsers = new();
     readonly Label rdpStatus = Note("");
     string targetDevice;
+    readonly EdgeMap edgeMap;
     readonly TrackBar strength = new() { Minimum = 200, Maximum = 2000, TickFrequency = 200, SmallChange = 50, LargeChange = 200, AutoSize = false, Height = 32 };
     readonly TrackBar hold = new() { Minimum = 0, Maximum = 800, TickFrequency = 100, SmallChange = 25, LargeChange = 100, AutoSize = false, Height = 32 };
     readonly Label strengthValue = Note(""), holdValue = Note("");
-    readonly CheckBox topToggles = Check("Pushing through the top again closes the portal");
-    readonly CheckBox bottomCloses = Check("Pushing out the bottom closes the portal");
+    readonly CheckBox topToggles = Check("Pushing through the same edge again closes the portal");
+    readonly CheckBox bottomCloses = Check("Pushing out the opposite edge closes the portal");
     readonly CheckBox stayConnected = Check("Stay connected while the portal is closed (instant reopen)");
     readonly CheckBox startup = Check("Start Async with Windows");
     readonly Button colorIn = Swatch(), colorOut = Swatch();
@@ -37,6 +38,12 @@ sealed class SettingsForm : Form
         this.cfg = cfg;
         this.core = core;
         targetDevice = cfg.TargetDevice;
+        // Never set up: start from what Async did before edges were configurable (every free top edge).
+        edgeMap = new EdgeMap(cfg.EdgeDevices != null
+            ? new Dictionary<string, string>(cfg.EdgeDevices)
+            : Screen.AllScreens.Where(s => cfg.IsConfigured && EdgeWatcher.IsFree(s.Bounds, Edge.Top))
+                .ToDictionary(s => Settings.EdgeKey(s.DeviceName, Edge.Top), _ => cfg.TargetDevice))
+        { BackColor = Bg, Font = new Font("Segoe UI", 9f) };
         Text = "Async settings";
         Icon = icon;
         BackColor = Bg;
@@ -83,7 +90,7 @@ sealed class SettingsForm : Form
 
         Heading(grid, "Devices");
         Row(grid, "This PC", Note($"{core.DeviceName}. Async must be running on any PC you want to punch into."));
-        Row(grid, "Punch into", deviceList);
+        Row(grid, "Paired", Stack(deviceList, Note("The selected one is what the hotkey and the tray icon open.")));
         var pair = Action("Pair a device…");
         pair.Click += (_, _) => PairDialog.ShowFor(core, icon);
         Row(grid, "", pair);
@@ -93,6 +100,9 @@ sealed class SettingsForm : Form
         UpdateRdpStatus();
         FillDevices();
         core.DevicesChanged += FillDevices;
+
+        Heading(grid, "Screen edges");
+        Row(grid, "", Stack(edgeMap, Note("Click an edge of a screen to choose which computer pushing through it opens. Edges where two of your screens meet aren't shown: the mouse just crosses over there.")));
 
         Heading(grid, "Push to punch");
         Row(grid, "How hard", Stack(strength, strengthValue));
@@ -148,6 +158,7 @@ sealed class SettingsForm : Form
     {
         bool connectionChanged = targetDevice != cfg.TargetDevice || deviceUsers.TryGetValue(targetDevice, out var tu) && tu.Text.Trim() != cfg.UserFor(targetDevice);
         cfg.TargetDevice = targetDevice;
+        cfg.EdgeDevices = new Dictionary<string, string>(edgeMap.Mapping);
         foreach (var (id, box) in deviceUsers) cfg.DeviceUsers[id] = box.Text.Trim();
         cfg.Hotkey = hotkey.Text.Trim();
         cfg.PushDistance = strength.Value;
@@ -181,6 +192,7 @@ sealed class SettingsForm : Form
             deviceList.SetColumnSpan(deviceList.Controls[0], 4);
         }
         if (core.Devices.All(d => d.Id != targetDevice)) targetDevice = core.Devices.FirstOrDefault()?.Id ?? "";
+        edgeMap.SetDevices(core.Devices);
         foreach (var d in core.Devices)
         {
             int row = deviceList.RowCount++;

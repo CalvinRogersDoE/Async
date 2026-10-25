@@ -94,6 +94,27 @@ async fn main() -> Result<()> {
         args.remove(i);
     }
 
+    // These only need the identity and the paired list, not this device's own connection, so they
+    // run fine next to the background service instead of starting a second copy of this device.
+    match args.first().map(String::as_str) {
+        Some("pair-host") => {
+            let store = Arc::new(Store::open(&data)?);
+            let me = store.secret_key()?.public();
+            let code = pairing::new_code();
+            println!("pairing code: {code} (valid for 10 minutes)");
+            let peer = pairing::host(code, me, store).await?;
+            println!("paired with {} ({})", peer.name, peer.id);
+            return Ok(());
+        }
+        Some("peers") => {
+            for p in Store::open(&data)?.peers() {
+                println!("{}  {}", p.id, p.name);
+            }
+            return Ok(());
+        }
+        _ => {}
+    }
+
     let offers = config.clone();
     let core = Arc::new(Core::start(data, config).await?);
     let mode = args.first().map(String::as_str).unwrap_or("control");
@@ -111,23 +132,10 @@ async fn main() -> Result<()> {
             tokio::signal::ctrl_c().await?;
             Ok(())
         }
-        "pair-host" => {
-            let code = pairing::new_code();
-            println!("pairing code: {code} (valid for 10 minutes)");
-            let peer = pairing::host(code, core.id(), core.store.clone()).await?;
-            println!("paired with {} ({})", peer.name, peer.id);
-            Ok(())
-        }
         "pair-join" => {
             let code = args.get(1).context("usage: pair-join CODE")?;
             let peer = pairing::join(core.endpoint(), code, &core.store).await?;
             println!("paired with {} ({})", peer.name, peer.id);
-            Ok(())
-        }
-        "peers" => {
-            for p in core.store.peers() {
-                println!("{}  {}", p.id, p.name);
-            }
             Ok(())
         }
         "tunnel" => {

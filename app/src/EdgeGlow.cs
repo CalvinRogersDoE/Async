@@ -17,8 +17,8 @@ sealed class EdgeGlow : NativeWindow, IDisposable
     Bitmap? surface;
     Color color;
     float target, shown;
-    int x;
-    bool top;
+    int along;
+    Edge edge;
     long lastPush;
 
     public EdgeGlow()
@@ -33,14 +33,20 @@ sealed class EdgeGlow : NativeWindow, IDisposable
     }
 
     /// <summary>Called for every bit of push; <paramref name="progress"/> is 0–1.</summary>
-    public void Push(Screen s, Point cursor, bool topEdge, float progress, Color col)
+    public void Push(Screen s, Point cursor, Edge e, float progress, Color col)
     {
         var b = s.Bounds;
-        var want = new Rectangle(b.X, topEdge ? b.Y : b.Bottom - Depth, b.Width, Depth);
+        var want = e switch
+        {
+            Edge.Top => new Rectangle(b.X, b.Y, b.Width, Depth),
+            Edge.Bottom => new Rectangle(b.X, b.Bottom - Depth, b.Width, Depth),
+            Edge.Left => new Rectangle(b.X, b.Y, Depth, b.Height),
+            _ => new Rectangle(b.Right - Depth, b.Y, Depth, b.Height),
+        };
         if (want != strip || surface == null) Allocate(want);
-        top = topEdge;
+        edge = e;
         color = col;
-        x = cursor.X - b.X;
+        along = e.Horizontal() ? cursor.X - b.X : cursor.Y - b.Y;
         target = progress;
         lastPush = Environment.TickCount64;
         if (!frame.Enabled)
@@ -74,7 +80,10 @@ sealed class EdgeGlow : NativeWindow, IDisposable
         {
             g.Clear(Color.Transparent);
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            Paint(g, x, top ? 0 : strip.Height, top, shown, color);
+            // Side edges: swap x and y, so the same glow lies along the side instead of the top.
+            if (!edge.Horizontal()) g.Transform = new Matrix(0, 1, 1, 0, 0, 0);
+            bool near = edge is Edge.Top or Edge.Left;
+            Paint(g, along, near ? 0 : Depth, near, shown, color);
         }
         Present();
     }

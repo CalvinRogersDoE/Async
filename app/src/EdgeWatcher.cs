@@ -2,23 +2,40 @@ using System.Runtime.InteropServices;
 
 namespace Async;
 
+enum Edge { Top, Bottom, Left, Right }
+
+static class Edges
+{
+    public static readonly Edge[] All = [Edge.Top, Edge.Bottom, Edge.Left, Edge.Right];
+    public static Edge Opposite(this Edge e) => e switch { Edge.Top => Edge.Bottom, Edge.Bottom => Edge.Top, Edge.Left => Edge.Right, _ => Edge.Left };
+    public static bool Horizontal(this Edge e) => e is Edge.Top or Edge.Bottom;
+
+    /// <summary>Where on the edge of <paramref name="b"/> a screen point lands, in monitor-local pixels.</summary>
+    public static PointF Point(this Edge e, Rectangle b, Point p)
+    {
+        float x = Math.Clamp(p.X - b.Left, 0, b.Width), y = Math.Clamp(p.Y - b.Top, 0, b.Height);
+        return e switch { Edge.Top => new(x, 0), Edge.Bottom => new(x, b.Height), Edge.Left => new(0, y), _ => new(b.Width, y) };
+    }
+}
+
 /// <summary>
-/// Watches raw mouse movement and fires when the cursor is held against the top (or bottom)
-/// edge of a monitor and the user keeps pushing. Raw input still reports movement after the
-/// cursor stops at the edge, which is what makes "pushing through" detectable.
+/// Watches raw mouse movement and fires when the cursor is held against an outer edge of a
+/// monitor and the user keeps pushing. Raw input still reports movement after the cursor stops
+/// at the edge, which is what makes "pushing through" detectable. Edges where the mouse simply
+/// crosses onto another monitor never count.
 /// </summary>
 sealed class EdgeWatcher : NativeWindow, IDisposable
 {
-    public event Action<Screen, Point>? PushedTop;
-    public event Action<Screen, Point>? PushedBottom;
+    public event Action<Screen, Edge, Point>? Pushed;
     public event Action? Hotkey;
-    /// <summary>A push is building: screen, cursor, whether it's the top edge, and 0–1 progress toward firing.</summary>
-    public event Action<Screen, Point, bool, float>? Pushing;
+    /// <summary>A push is building: screen, edge, cursor, and 0–1 progress toward firing.</summary>
+    public event Action<Screen, Edge, Point, float>? Pushing;
 
     readonly Settings cfg;
     readonly int headerSize = Marshal.SizeOf<Native.RAWINPUTHEADER>();
     readonly IntPtr buffer = Marshal.AllocHGlobal(256);
-    int pushed, pushDir;
+    int pushed;
+    Edge? pushEdge;
     long lastPush, pushStart, cooldownUntil;
     bool hotkeyRegistered;
 
@@ -61,40 +78,70 @@ sealed class EdgeWatcher : NativeWindow, IDisposable
         if (Native.GetRawInputData(raw, Native.RID_INPUT, buffer, ref size, (uint)headerSize) == uint.MaxValue) return;
         if (Marshal.ReadInt32(buffer, 0) != 0) return;                   // not RIM_TYPEMOUSE
         if ((Marshal.ReadInt16(buffer, headerSize) & 1) != 0) return;    // absolute (tablet / remote) devices
+        int dx = Marshal.ReadInt32(buffer, headerSize + 12);
         int dy = Marshal.ReadInt32(buffer, headerSize + 16);
         LastRawInput = Environment.TickCount64;
-        if (dy != 0) Track(dy);
+        if (dx != 0 || dy != 0) Track(dx, dy);
     }
 
-    void Track(int dy)
+    void Track(int dx, int dy)
     {
         long now = Environment.TickCount64;
         Native.GetCursorPos(out var c);
         var p = new Point(c.X, c.Y);
-        if (Debug) Log.Write($"raw dy={dy} cursor={p} buttons={ButtonsDown()} captured={CursorCaptured()} cooldown={now < cooldownUntil}");
+        if (Debug) Log.Write($"raw dx={dx} dy={dy} cursor={p} buttons={ButtonsDown()} captured={CursorCaptured()} cooldown={now < cooldownUntil}");
         if (now < cooldownUntil || ButtonsDown() || CursorCaptured()) { pushed = 0; return; }
 
         var screen = Screen.FromPoint(p);
         var b = screen.Bounds;
-        bool atTop = p.Y <= b.Top && !ScreenAt(p.X, b.Top - 1);
-        bool atBottom = p.Y >= b.Bottom - 1 && !ScreenAt(p.X, b.Bottom);
-        int dir = dy < 0 && atTop ? -1 : dy > 0 && atBottom ? 1 : 0;
+        // In a corner, the push goes to whichever edge it's pressing into harder.
+        Edge? edge = null;
+        int amount = 0;
+        void Consider(Edge e, bool against, int d)
+        {
+            if (against && Math.Abs(d) > amount) { edge = e; amount = Math.Abs(d); }
+        }
+        Consider(Edge.Top, dy < 0 && p.Y <= b.Top && !ScreenAt(p.X, b.Top - 1), dy);
+        Consider(Edge.Bottom, dy > 0 && p.Y >= b.Bottom - 1 && !ScreenAt(p.X, b.Bottom), dy);
+        Consider(Edge.Left, dx < 0 && p.X <= b.Left && !ScreenAt(b.Left - 1, p.Y), dx);
+        Consider(Edge.Right, dx > 0 && p.X >= b.Right - 1 && !ScreenAt(b.Right, p.Y), dx);
 
-        if (dir == 0 || dir != pushDir || now - lastPush > cfg.PushGapMs) { pushed = 0; pushStart = now; }
-        pushDir = dir;
+        // Sliding along the edge while pushing into it (no movement across it) neither adds nor resets.
+        if (edge == null && pushEdge != null && (pushEdge.Value.Horizontal() ? dy : dx) == 0) return;
+
+        if (edge == null || edge != pushEdge || now - lastPush > cfg.PushGapMs) { pushed = 0; pushStart = now; }
+        pushEdge = edge;
         lastPush = now;
-        if (dir == 0) return;
+        if (edge is not { } e) return;
 
-        pushed += Math.Abs(dy);
+        pushed += amount;
         // How close the push is to firing: whichever of distance and duration is further behind.
         float progress = Math.Min((float)pushed / cfg.PushDistance, cfg.PushHoldMs <= 0 ? 1 : (float)(now - pushStart) / cfg.PushHoldMs);
-        Pushing?.Invoke(screen, p, dir < 0, Math.Clamp(progress, 0, 1));
+        Pushing?.Invoke(screen, e, p, Math.Clamp(progress, 0, 1));
         if (pushed < cfg.PushDistance || now - pushStart < cfg.PushHoldMs) return;
 
         pushed = 0;
         Cooldown(700);
-        Log.Write($"Push {(dir < 0 ? "top" : "bottom")} on {screen.DeviceName} at {p}");
-        (dir < 0 ? PushedTop : PushedBottom)?.Invoke(screen, p);
+        Log.Write($"Push {e} on {screen.DeviceName} at {p}");
+        Pushed?.Invoke(screen, e, p);
+    }
+
+    /// <summary>Whether part of this monitor edge is free (not joined to another monitor), so it can be pushed through.</summary>
+    public static bool IsFree(Rectangle b, Edge e)
+    {
+        for (int i = 0; i < 24; i++)
+        {
+            int x = b.Left + (int)((i + 0.5) * b.Width / 24), y = b.Top + (int)((i + 0.5) * b.Height / 24);
+            bool taken = e switch
+            {
+                Edge.Top => ScreenAt(x, b.Top - 1),
+                Edge.Bottom => ScreenAt(x, b.Bottom),
+                Edge.Left => ScreenAt(b.Left - 1, y),
+                _ => ScreenAt(b.Right, y),
+            };
+            if (!taken) return true;
+        }
+        return false;
     }
 
     static bool ScreenAt(int x, int y) => Screen.AllScreens.Any(s => s.Bounds.Contains(x, y));

@@ -4,13 +4,14 @@
 
 <h1 align="center">Async</h1>
 
-<p align="center"><b>Push your mouse through the top of your screen and punch a portal into another computer.</b></p>
+<p align="center"><b>Push your mouse through the edge of your screen and punch a portal into another computer.</b></p>
 
 ![The portal opening, then closing](docs/preview.png)
 
-Async turns any monitor into a window onto another PC. Shove the mouse against the top edge and a portal
-tears open where you pushed, showing the other computer's desktop on that monitor. Push down out of the
-bottom and it collapses back. No desk-hopping, and no separate remote-desktop app to dig through.
+Async turns any monitor into a window onto another computer. Shove the mouse against the edge of a screen
+and a portal tears open where you pushed, showing the other computer's desktop on that monitor. Push out the
+opposite edge and it collapses back. Each edge of each monitor can lead to a different computer: the top of
+your main screen to your desktop, the right side of your laptop screen to a Mac, and so on.
 
 Async runs on every computer you want to move between. The copies pair with a short code and then talk
 through their own end-to-end encrypted tunnel. There's no account to make, no VPN to set up (Tailscale,
@@ -18,12 +19,13 @@ Hamachi…) and no ports to open on your router.
 
 ## Features
 
-- **Punch through any monitor:** each screen with a free top edge works, and the remote desktop resizes
-  itself to fit the one you punched.
+- **Pick an edge for each computer:** Settings shows your monitors as they're arranged; click any outer
+  edge and choose which paired computer it opens. The remote desktop resizes itself to fit the monitor.
 - **Deliberate pushes only:** resting at the edge, flicking past it, dragging a window to the top, or moving
   the camera in a game never triggers it. How hard and how long you push are adjustable.
 - **Edge glow:** the edge lights up as you push, so you can feel the portal about to open.
 - **Lands where you punched:** the other computer's cursor appears right under the spot you pushed through.
+- **Windows, macOS and Linux** computers can be punched into.
 - **Pair with a code:** one PC shows `ABCD-EFGH`, you type it on the other, done.
 - **Its own secure tunnel**, built on [iroh](https://github.com/n0-computer/iroh). Connections go direct
   between your computers when possible (through home routers via hole punching) and fall back to an
@@ -46,7 +48,7 @@ Grab the download for each computer from the [latest release](https://github.com
 | Linux (x86-64 or ARM64) | `Async-linux-x86_64.tar.gz` / `Async-linux-arm64.tar.gz`: unpack and run `./install.sh` | Be punched into |
 
 Each system runs programs built for it, so there's one download per system, all built from the same
-code. Setting up a Mac or Linux computer is covered in **[docs/hosting.md](docs/hosting.md)**.
+code. **Setting up a Mac or Linux computer, step by step: [docs/hosting.md](docs/hosting.md).**
 
 On Windows:
 
@@ -54,8 +56,10 @@ On Windows:
 2. On one computer: tray icon → **Pair a device…** → **Show a code**. On the other: **Pair a device…** →
    **Enter a code**.
 3. In **Settings**, next to the computer you'll punch into, enter the Windows user to sign in as, then
-   **Password…**. The password is kept in Windows Credential Manager on this PC only.
-4. Push your mouse up through the top of a screen.
+   **Password…** (for a Mac or Linux computer, just the screen sharing password). It's kept in Windows
+   Credential Manager on this PC only.
+4. Under **Screen edges**, click an edge and pick that computer. Save.
+5. Push your mouse hard through that edge.
 
 Turn on **Start Async with Windows** on any computer you want to be able to reach while you're away from it.
 
@@ -80,10 +84,10 @@ while you're connected; its programs keep running.
 - [x] Remote Desktop through the tunnel
 - [x] Punch into macOS (Screen Sharing over VNC) and Linux (Remote Desktop or VNC)
 - [x] The edge glows as you push; the cursor lands where you punched through
-- [ ] Async's own screen streaming: one format on every system, Windows Home as a host, and punching
-      *out* of macOS and Linux
+- [x] Map edges to computers (top → desktop, right → laptop…)
+- [ ] Punching *out* of macOS and Linux
+- [ ] Async's own screen streaming: one format on every system, and Windows Home as a host
 - [ ] Terminal mode: punch into a Linux or macOS shell
-- [ ] Map edges to computers (top → desktop, left → laptop…)
 - [ ] Installer and auto-update
 
 ## How it works
@@ -101,7 +105,7 @@ while you're connected; its programs keep running.
 ```
 
 - **`app/`**: the Windows tray app (C#, WinForms). It watches raw mouse input for pushes against a screen
-  edge (`EdgeWatcher.cs`), draws the portal on a click-through overlay while growing the remote window's
+  edge (`EdgeWatcher.cs`) and looks up which computer that edge leads to (`EdgeMap.cs` is the picker), draws the portal on a click-through overlay while growing the remote window's
   circular shape (`PortalFx.cs`, `App.cs`), and hosts Windows' Remote Desktop ActiveX control
   (`PortalForm.cs`).
 - **`core/`**: `async-core`, the part that runs on every machine (Rust). It holds the device identity, pairs
