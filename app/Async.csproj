@@ -12,8 +12,8 @@
     <ApplicationIcon>assets\async.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <Product>Async</Product>
-    <Authors>Claude via Calvin</Authors>
-    <Company>Claude via Calvin</Company>
+    <Authors>HallucinatesTigers</Authors>
+    <Company>HallucinatesTigers</Company>
     <Description>Push your mouse through the top of a screen to punch a portal into another computer.</Description>
     <Version>0.2.0</Version>
   </PropertyGroup>

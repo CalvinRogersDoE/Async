@@ -81,8 +81,13 @@ pub fn edge_key(monitor: &str, e: Edge) -> String {
     format!("{monitor}/{e:?}")
 }
 
+/// Async's own folder: ~/.config/async on Linux, ~/Library/Application Support/Async on macOS
+/// (the same places install.sh and async-core use).
 pub fn folder() -> PathBuf {
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    if cfg!(target_os = "macos") {
+        return home.join("Library/Application Support/Async");
+    }
     std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config")).join("async")
 }
 

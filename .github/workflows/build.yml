@@ -72,26 +72,35 @@ jobs:
         working-directory: core
         run: cargo test --release
 
-      - name: Build async-core
-        working-directory: core
+      # async-core lets paired computers in; async-desktop punches out of this one.
+      - name: Build async-core and async-desktop
         run: |
-          if [ "${{ matrix.name }}" = macos-universal ]; then
-            cargo build --release --target aarch64-apple-darwin
-            cargo build --release --target x86_64-apple-darwin
-            lipo -create -output target/release/async-core \
-              target/aarch64-apple-darwin/release/async-core target/x86_64-apple-darwin/release/async-core
-          else
-            cargo build --release
-          fi
-          ./target/release/async-core --version
+          for crate in core desktop; do
+            bin="async-$crate"
+            [ "$crate" = core ] && bin=async-core
+            (
+              cd "$crate"
+              if [ "${{ matrix.name }}" = macos-universal ]; then
+                cargo build --release --target aarch64-apple-darwin
+                cargo build --release --target x86_64-apple-darwin
+                mkdir -p target/release
+                lipo -create -output "target/release/$bin" \
+                  "target/aarch64-apple-darwin/release/$bin" "target/x86_64-apple-darwin/release/$bin"
+              else
+                cargo build --release
+              fi
+              "./target/release/$bin" --version
+            )
+          done
 
       - name: Package
         run: |
           dir="Async-${{ matrix.name }}"
           mkdir "$dir"
-          cp core/target/release/async-core packaging/install.sh LICENSE "$dir"/
+          cp core/target/release/async-core desktop/target/release/async-desktop packaging/install.sh LICENSE "$dir"/
           cp docs/hosting.md "$dir"/README.md
-          chmod +x "$dir"/async-core "$dir"/install.sh
+          if [ "${{ matrix.name }}" = macos-universal ]; then cp "packaging/Install Async.command" "$dir"/; fi
+          chmod +x "$dir"/async-core "$dir"/async-desktop "$dir"/install.sh "$dir"/*.command 2>/dev/null || true
           tar -czf "$dir.tar.gz" "$dir"
 
       - uses: actions/upload-artifact@v7

@@ -1,4 +1,5 @@
-//! Async for Linux: push the mouse through a screen edge and punch a portal into another computer.
+//! Async for Linux and macOS: push the mouse through a screen edge and punch a portal into another
+//! computer.
 //!
 //! ```text
 //! async-desktop              # run in the background with a tray icon (what login starts)
@@ -51,9 +52,15 @@ fn run() -> anyhow::Result<()> {
     let _guard = UnixListener::bind(&lock)?;
 
     let core = core::Core::connect(|_| {})?;
-    let event_loop = EventLoop::<app::AppEvent>::with_user_event().build()?;
+    let mut builder = EventLoop::<app::AppEvent>::with_user_event();
+    #[cfg(target_os = "macos")]
+    {
+        // A menu-bar app: no Dock icon, no app menu.
+        use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+        builder.with_activation_policy(ActivationPolicy::Accessory);
+    }
+    let event_loop = builder.build()?;
     let proxy = event_loop.create_proxy();
-    tray::spawn(proxy.clone());
     let mut app = app::App::new(core, proxy)?;
     event_loop.run_app(&mut app)?;
     Ok(())

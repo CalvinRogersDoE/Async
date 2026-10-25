@@ -145,7 +145,7 @@ the icon. Logs and settings live in `%APPDATA%\Async`.
 
 ## Credits
 
-Made by Claude via Calvin. The tunnel is [iroh](https://github.com/n0-computer/iroh) by n0 (Apache-2.0/MIT).
+Made by HallucinatesTigers. The tunnel is [iroh](https://github.com/n0-computer/iroh) by n0 (Apache-2.0/MIT).
 
 *Portal* and *Portal 2* are trademarks of Valve Corporation. Async isn't affiliated with or endorsed by
 Valve, ships none of Valve's files, and only reads the sounds from a copy of the game you own, if you point

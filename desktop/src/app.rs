@@ -15,17 +15,7 @@ use crate::edges::{self, Cooldown, Push};
 use crate::monitors::Monitor;
 use crate::portal::Portal;
 use crate::rdp::{self, Session};
-
-#[derive(Debug, Clone, Copy)]
-pub enum MenuCmd {
-    PunchHere,
-    Close,
-    Disconnect,
-    NextScreen,
-    PrevScreen,
-    Settings,
-    Quit,
-}
+use crate::tray::{self, MenuCmd};
 
 pub enum AppEvent {
     Push(Push),
@@ -91,6 +81,7 @@ pub struct App {
     epoch: u64,
     devices: Vec<Device>,
     devices_at: Option<Instant>,
+    tray: Option<tray::Handle>,
 }
 
 impl App {
@@ -120,6 +111,7 @@ impl App {
             epoch: 0,
             devices: Vec::new(),
             devices_at: None,
+            tray: None,
         })
     }
 
@@ -300,7 +292,7 @@ impl App {
             open_settings();
             return;
         };
-        let size = self.portal.as_ref().and_then(|p| p.monitor.as_ref()).map(|m| (m.w as u16, m.h as u16)).unwrap_or((1920, 1080));
+        let size = self.portal.as_ref().and_then(|p| p.monitor.as_ref()).map(|m| m.pixels()).map(|(w, h)| (w as u16, h as u16)).unwrap_or((1920, 1080));
         let proxy = self.proxy.clone();
         match Session::start(self.rt.handle(), &host, port, &user, &password, size, &self.screens, move |out| {
             let _ = proxy.send_event(AppEvent::Rdp { epoch, out });
@@ -423,9 +415,10 @@ impl App {
                 p.draw(None);
                 if let Some(m) = p.monitor.clone() {
                     // Land on the other computer right where you punched through.
-                    let lx = (cx as i32).clamp(4, m.w - 5);
-                    let ly = (cy as i32).clamp(4, m.h - 5);
-                    p.warp_pointer(m.x + lx, m.y + ly);
+                    let (pw, ph) = m.pixels();
+                    let lx = (cx as i32).clamp(4, pw as i32 - 5);
+                    let ly = (cy as i32).clamp(4, ph as i32 - 5);
+                    p.warp_pointer(m.x + (lx as f64 / m.scale) as i32, m.y + (ly as f64 / m.scale) as i32);
                     if let (Some(s), Some((dx, dy))) = (self.session.as_mut(), p.to_desktop(lx as f64, ly as f64)) {
                         s.mouse_to(dx, dy);
                     }
@@ -447,6 +440,13 @@ impl App {
 
 impl ApplicationHandler<AppEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.tray.is_none() {
+            // Created here because macOS needs its menu-bar item made on the running main thread.
+            let proxy = Mutex::new(self.proxy.clone());
+            self.tray = tray::spawn(move |cmd| {
+                let _ = proxy.lock().unwrap().send_event(AppEvent::Menu(cmd));
+            });
+        }
         if self.portal.is_none() {
             match Portal::new(event_loop) {
                 Ok(p) => self.portal = Some(p),
@@ -500,8 +500,10 @@ impl ApplicationHandler<AppEvent> for App {
     }
 }
 
+/// How far the portal's circle must grow from `c` (monitor pixels) to cover the whole monitor.
 fn far_corner(c: (f32, f32), m: &Monitor) -> f32 {
-    let (w, h) = (m.w as f32, m.h as f32);
+    let (w, h) = m.pixels();
+    let (w, h) = (w as f32, h as f32);
     [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)].iter().map(|&(x, y)| ((x - c.0).powi(2) + (y - c.1).powi(2)).sqrt()).fold(0.0, f32::max) + 40.0
 }
 
@@ -515,10 +517,17 @@ pub fn open_settings() {
     }
 }
 
-/// A desktop notification (falls back to the terminal).
+/// A desktop notification (also printed, for the log).
 pub fn notify(title: &str, body: &str) {
     eprintln!("{title}: {body}");
+    #[cfg(target_os = "linux")]
     detach(std::process::Command::new("notify-send").args(["--app-name=Async", "--icon=network-workgroup", title, body]));
+    #[cfg(target_os = "macos")]
+    {
+        let quote = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
+        let script = format!("display notification {} with title {}", quote(body), quote(title));
+        detach(std::process::Command::new("osascript").args(["-e", &script]));
+    }
 }
 
 /// Starts a program and reaps it when it exits, so it doesn't linger as a zombie.

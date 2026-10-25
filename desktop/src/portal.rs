@@ -1,18 +1,14 @@
-//! The portal: a borderless fullscreen window on one monitor, showing the other computer's desktop.
-//! Opening and closing grow or shrink it as a circle (X11 Shape extension) with a glowing rim.
+//! The portal: a borderless window covering one monitor, showing the other computer's desktop.
+//! Opening and closing grow or shrink it as a circle with a glowing rim: the X11 Shape extension
+//! cuts the window on Linux, a Core Animation mask layer on macOS.
 
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use winit::dpi::{PhysicalPosition, PhysicalSize};
+use anyhow::{Result, anyhow};
+use winit::dpi::PhysicalSize;
 use winit::event_loop::ActiveEventLoop;
-use winit::window::{Fullscreen, Window, WindowLevel};
-use x11rb::connection::Connection;
-use x11rb::protocol::shape::{ConnectionExt as _, SK, SO};
-use x11rb::protocol::xproto::{ClipOrdering, ConnectionExt as _, Rectangle};
-use x11rb::rust_connection::RustConnection;
+use winit::window::{Window, WindowLevel};
 
 use crate::monitors::Monitor;
 
@@ -22,9 +18,7 @@ pub struct Portal {
     window: Arc<Window>,
     surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
     _context: softbuffer::Context<Arc<Window>>,
-    x: RustConnection,
-    root: u32,
-    xid: u32,
+    shape: shape::Shaper,
     pub monitor: Option<Monitor>,
     pub visible: bool,
     frame: Vec<u32>,
@@ -44,14 +38,8 @@ impl Portal {
         let window = Arc::new(event_loop.create_window(attrs)?);
         let context = softbuffer::Context::new(window.clone()).map_err(|e| anyhow!("{e}"))?;
         let surface = softbuffer::Surface::new(&context, window.clone()).map_err(|e| anyhow!("{e}"))?;
-        let xid = match window.window_handle()?.as_raw() {
-            RawWindowHandle::Xlib(h) => h.window as u32,
-            RawWindowHandle::Xcb(h) => h.window.get(),
-            _ => return Err(anyhow!("Async needs an X11 session for now (Wayland comes later)")),
-        };
-        let (x, screen) = x11rb::connect(None).context("can't reach the X display")?;
-        let root = x.setup().roots[screen].root;
-        Ok(Self { window, surface, _context: context, x, root, xid, monitor: None, visible: false, frame: Vec::new(), frame_size: (0, 0), view: None })
+        let shape = shape::Shaper::new(&window)?;
+        Ok(Self { window, surface, _context: context, shape, monitor: None, visible: false, frame: Vec::new(), frame_size: (0, 0), view: None })
     }
 
     pub fn window(&self) -> &Window {
@@ -60,17 +48,11 @@ impl Portal {
 
     /// Covers `m`, still fully cut away (invisible) until [`Portal::set_circle`] opens it up.
     pub fn show_on(&mut self, m: &Monitor) {
+        self.monitor = Some(m.clone());
         self.set_circle(0.0, 0.0, 0.0);
-        let handle = self.window.available_monitors().find(|h| {
-            let p = h.position();
-            p.x == m.x && p.y == m.y
-        });
-        self.window.set_outer_position(PhysicalPosition::new(m.x, m.y));
-        let _ = self.window.request_inner_size(PhysicalSize::new(m.w as u32, m.h as u32));
-        self.window.set_fullscreen(Some(Fullscreen::Borderless(handle)));
+        self.shape.place(&self.window, m);
         self.window.set_visible(true);
         self.window.focus_window();
-        self.monitor = Some(m.clone());
         self.visible = true;
     }
 
@@ -82,36 +64,23 @@ impl Portal {
     /// Cuts the window to a circle of radius `r` around (cx, cy), in window pixels.
     pub fn set_circle(&self, cx: f32, cy: f32, r: f32) {
         let (w, h) = self.size();
-        let mut rects = Vec::new();
-        let r = r.max(0.0);
-        let mut dy = -r;
-        while dy < r {
-            let half = (r * r - dy * dy).max(0.0).sqrt();
-            let (y0, x0, x1) = ((cy + dy) as i32, (cx - half) as i32, (cx + half) as i32);
-            let (x0, x1) = (x0.max(0), x1.min(w as i32));
-            if y0 >= 0 && y0 < h as i32 && x1 > x0 {
-                rects.push(Rectangle { x: x0 as i16, y: y0 as i16, width: (x1 - x0) as u16, height: 2 });
-            }
-            dy += 2.0;
-        }
-        let _ = self.x.shape_rectangles(SO::SET, SK::BOUNDING, ClipOrdering::UNSORTED, self.xid, 0, 0, &rects);
-        let _ = self.x.flush();
+        self.shape.set_circle(cx, cy, r.max(0.0), w, h, self.window.scale_factor());
     }
 
     /// Back to a plain rectangle.
     pub fn clear_shape(&self) {
-        let _ = self.x.shape_mask(SO::SET, SK::BOUNDING, self.xid, 0, 0, x11rb::NONE);
-        let _ = self.x.flush();
+        self.shape.clear();
     }
 
+    /// Moves the pointer to (x, y) in desktop units.
     pub fn warp_pointer(&self, x: i32, y: i32) {
-        let _ = self.x.warp_pointer(x11rb::NONE, self.root, 0, 0, 0, 0, x as i16, y as i16);
-        let _ = self.x.flush();
+        self.shape.warp(x, y);
     }
 
+    /// The window's size in pixels.
     pub fn size(&self) -> (u32, u32) {
         match &self.monitor {
-            Some(m) => (m.w as u32, m.h as u32),
+            Some(m) => m.pixels(),
             None => {
                 let s = self.window.inner_size();
                 (s.width, s.height)
@@ -264,6 +233,148 @@ fn paint_rim(buf: &mut [u32], w: u32, h: u32, cx: f32, cy: f32, r: f32, color: [
                 };
                 buf[i] = mix(16, color[0]) | mix(8, color[1]) | mix(0, color[2]);
             }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod shape {
+    use anyhow::{Context, Result, anyhow};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use winit::dpi::{PhysicalPosition, PhysicalSize};
+    use winit::window::{Fullscreen, Window};
+    use x11rb::connection::Connection;
+    use x11rb::protocol::shape::{ConnectionExt as _, SK, SO};
+    use x11rb::protocol::xproto::{ClipOrdering, ConnectionExt as _, Rectangle};
+    use x11rb::rust_connection::RustConnection;
+
+    use crate::monitors::Monitor;
+
+    pub struct Shaper {
+        x: RustConnection,
+        root: u32,
+        xid: u32,
+    }
+
+    impl Shaper {
+        pub fn new(window: &Window) -> Result<Self> {
+            let xid = match window.window_handle()?.as_raw() {
+                RawWindowHandle::Xlib(h) => h.window as u32,
+                RawWindowHandle::Xcb(h) => h.window.get(),
+                _ => return Err(anyhow!("Async needs an X11 session for now (Wayland comes later)")),
+            };
+            let (x, screen) = x11rb::connect(None).context("can't reach the X display")?;
+            let root = x.setup().roots[screen].root;
+            Ok(Self { x, root, xid })
+        }
+
+        pub fn place(&self, window: &Window, m: &Monitor) {
+            let handle = window.available_monitors().find(|h| {
+                let p = h.position();
+                p.x == m.x && p.y == m.y
+            });
+            window.set_outer_position(PhysicalPosition::new(m.x, m.y));
+            let _ = window.request_inner_size(PhysicalSize::new(m.w as u32, m.h as u32));
+            window.set_fullscreen(Some(Fullscreen::Borderless(handle)));
+        }
+
+        pub fn set_circle(&self, cx: f32, cy: f32, r: f32, w: u32, h: u32, _scale: f64) {
+            let mut rects = Vec::new();
+            let mut dy = -r;
+            while dy < r {
+                let half = (r * r - dy * dy).max(0.0).sqrt();
+                let (y0, x0, x1) = ((cy + dy) as i32, (cx - half) as i32, (cx + half) as i32);
+                let (x0, x1) = (x0.max(0), x1.min(w as i32));
+                if y0 >= 0 && y0 < h as i32 && x1 > x0 {
+                    rects.push(Rectangle { x: x0 as i16, y: y0 as i16, width: (x1 - x0) as u16, height: 2 });
+                }
+                dy += 2.0;
+            }
+            let _ = self.x.shape_rectangles(SO::SET, SK::BOUNDING, ClipOrdering::UNSORTED, self.xid, 0, 0, &rects);
+            let _ = self.x.flush();
+        }
+
+        pub fn clear(&self) {
+            let _ = self.x.shape_mask(SO::SET, SK::BOUNDING, self.xid, 0, 0, x11rb::NONE);
+            let _ = self.x.flush();
+        }
+
+        pub fn warp(&self, x: i32, y: i32) {
+            let _ = self.x.warp_pointer(x11rb::NONE, self.root, 0, 0, 0, 0, x as i16, y as i16);
+            let _ = self.x.flush();
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod shape {
+    use anyhow::{Result, anyhow};
+    use objc2::rc::Retained;
+    use objc2_app_kit::{NSScreenSaverWindowLevel, NSView, NSWindowCollectionBehavior};
+    use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+    use objc2_core_graphics::CGPath;
+    use objc2_quartz_core::{CAShapeLayer, CATransaction};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use winit::dpi::{LogicalPosition, LogicalSize};
+    use winit::window::Window;
+
+    use crate::monitors::Monitor;
+
+    pub struct Shaper {
+        view: Retained<NSView>,
+        mask: Retained<CAShapeLayer>,
+    }
+
+    impl Shaper {
+        pub fn new(window: &Window) -> Result<Self> {
+            let RawWindowHandle::AppKit(h) = window.window_handle()?.as_raw() else { return Err(anyhow!("not an AppKit window")) };
+            // SAFETY: winit hands out its live NSView; retaining it keeps it valid for as long as we hold it.
+            let view: Retained<NSView> = unsafe { Retained::retain(h.ns_view.as_ptr().cast()) }.ok_or_else(|| anyhow!("no NSView"))?;
+            view.setWantsLayer(true);
+            if let Some(w) = view.window() {
+                // Above the menu bar and the Dock, on whichever Space is showing.
+                w.setLevel(NSScreenSaverWindowLevel);
+                w.setCollectionBehavior(NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::FullScreenAuxiliary | NSWindowCollectionBehavior::Stationary);
+            }
+            Ok(Self { view, mask: CAShapeLayer::new() })
+        }
+
+        pub fn place(&self, window: &Window, m: &Monitor) {
+            // A plain window over the whole screen: macOS's own fullscreen would slide in a new Space.
+            window.set_outer_position(LogicalPosition::new(m.x as f64, m.y as f64));
+            let _ = window.request_inner_size(LogicalSize::new(m.w as f64, m.h as f64));
+        }
+
+        /// Masks the window's layer to the circle. winit's view is flipped (origin top-left), so
+        /// the window's own coordinates work as they are, just in points rather than pixels.
+        pub fn set_circle(&self, cx: f32, cy: f32, r: f32, w: u32, h: u32, scale: f64) {
+            let Some(layer) = self.view.layer() else { return };
+            let s = scale.max(1.0);
+            let (cx, cy, r) = (cx as f64 / s, cy as f64 / s, r as f64 / s);
+            CATransaction::begin();
+            CATransaction::setDisableActions(true);
+            self.mask.setFrame(CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(w as f64 / s, h as f64 / s)));
+            // SAFETY: a null transform is allowed.
+            let path = unsafe { CGPath::with_ellipse_in_rect(CGRect::new(CGPoint::new(cx - r, cy - r), CGSize::new(r * 2.0, r * 2.0)), std::ptr::null()) };
+            self.mask.setPath(Some(&path));
+            // SAFETY: the mask layer isn't in any other layer tree.
+            unsafe { layer.setMask(Some(&self.mask)) };
+            CATransaction::commit();
+        }
+
+        pub fn clear(&self) {
+            if let Some(layer) = self.view.layer() {
+                // SAFETY: removing the mask is always allowed.
+                unsafe { layer.setMask(None) };
+            }
+        }
+
+        pub fn warp(&self, x: i32, y: i32) {
+            use core_graphics::display::CGDisplay;
+            use core_graphics::geometry::CGPoint as CgPoint;
+            let _ = CGDisplay::warp_mouse_cursor_position(CgPoint::new(x as f64, y as f64));
+            // Warping freezes the pointer for a moment unless it's re-associated with the mouse.
+            let _ = CGDisplay::associate_mouse_and_mouse_cursor_position(true);
         }
     }
 }

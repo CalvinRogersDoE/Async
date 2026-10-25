@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Installs async-core on macOS or Linux so paired computers can punch into this one.
+# Installs Async on macOS or Linux: async-core (so paired computers can punch into this one) and,
+# when it's in the download, async-desktop (so this computer can punch into the others).
 #
 #   ./install.sh              install, start at login, check screen sharing, offer to pair
 #   ./install.sh --uninstall  stop it and remove it (paired devices are kept unless you delete
@@ -18,42 +19,51 @@ case "$os" in
     bin_dir="$HOME/Library/Application Support/Async/bin"
     data_dir="$HOME/Library/Application Support/Async/core"
     agent="$HOME/Library/LaunchAgents/async-core.plist"
+    desktop_agent="$HOME/Library/LaunchAgents/async-desktop.plist"
     ;;
   Linux)
     bin_dir="$HOME/.local/bin"
     data_dir="${XDG_CONFIG_HOME:-$HOME/.config}/async/core"
     unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/async-core.service"
+    autostart="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/async-desktop.desktop"
+    menu_entry="${XDG_DATA_HOME:-$HOME/.local/share}/applications/async.desktop"
     ;;
   *) echo "This script is for macOS and Linux. On Windows, run Async.exe." >&2; exit 1 ;;
 esac
 exe="$bin_dir/async-core"
+desktop="$bin_dir/async-desktop"
 
 stop_service() {
   if [ "$os" = Darwin ]; then
     launchctl bootout "gui/$(id -u)" "$agent" 2>/dev/null || true
+    launchctl bootout "gui/$(id -u)" "$desktop_agent" 2>/dev/null || true
   else
     systemctl --user disable --now async-core.service 2>/dev/null || true
+    pkill -x async-desktop 2>/dev/null || true
   fi
 }
 
 if [ "${1:-}" = "--uninstall" ]; then
   stop_service
   [ "$os" = Linux ] && systemctl --user disable --now async-vnc.service 2>/dev/null || true
-  rm -f "$exe" "${agent:-}" "${unit:-}" "${unit:+$(dirname "$unit")/async-vnc.service}"
+  rm -f "$exe" "$desktop" "${agent:-}" "${desktop_agent:-}" "${unit:-}" "${unit:+$(dirname "$unit")/async-vnc.service}" "${autostart:-}" "${menu_entry:-}"
   [ "$os" = Linux ] && systemctl --user daemon-reload 2>/dev/null || true
-  say "Removed async-core. Your identity and paired devices are still in: $data_dir"
+  say "Removed Async. Your identity and paired devices are still in: $data_dir"
   exit 0
 fi
 
 [ -f "$here/async-core" ] || { echo "async-core isn't next to this script." >&2; exit 1; }
 
-say "Installing async-core to $exe"
+say "Installing Async to $bin_dir"
 stop_service
 mkdir -p "$bin_dir"
-cp "$here/async-core" "$exe"
-chmod +x "$exe"
-# A program downloaded from the internet is quarantined by macOS; this one isn't signed by Apple.
-[ "$os" = Darwin ] && xattr -d com.apple.quarantine "$exe" 2>/dev/null || true
+for prog in async-core async-desktop; do
+  [ -f "$here/$prog" ] || continue
+  cp "$here/$prog" "$bin_dir/$prog"
+  chmod +x "$bin_dir/$prog"
+  # A program downloaded from the internet is quarantined by macOS; these aren't signed by Apple.
+  [ "$os" = Darwin ] && xattr -d com.apple.quarantine "$bin_dir/$prog" 2>/dev/null || true
+done
 
 if [ "$os" = Darwin ]; then
   mkdir -p "$(dirname "$agent")"
@@ -73,7 +83,31 @@ if [ "$os" = Darwin ]; then
 </plist>
 EOF
   launchctl bootstrap "gui/$(id -u)" "$agent"
-  say "Running in the background and at every login (log: ~/Library/Logs/async-core.log)"
+  say "Async's engine is running in the background and at every login (log: ~/Library/Logs/async-core.log)"
+
+  if [ -x "$desktop" ]; then
+    cat > "$desktop_agent" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>async-desktop</string>
+  <key>ProgramArguments</key>
+  <array><string>$desktop</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Logs/async-desktop.log</string>
+  <key>StandardOutPath</key><string>$HOME/Library/Logs/async-desktop.log</string>
+</dict>
+</plist>
+EOF
+    sleep 1 # let the engine open its socket first
+    launchctl bootstrap "gui/$(id -u)" "$desktop_agent"
+    say "Async's menu-bar icon (a purple ring) is running, and starts at every login."
+    warn "macOS will ask to let async-desktop use Input Monitoring: allow it, so Async notices"
+    warn "you pushing through a screen edge (System Settings > Privacy & Security > Input Monitoring)."
+  fi
 else
   mkdir -p "$(dirname "$unit")"
   cat > "$unit" <<EOF
@@ -91,7 +125,37 @@ WantedBy=default.target
 EOF
   systemctl --user daemon-reload
   systemctl --user enable --now async-core.service
-  say "Running in the background and at every login (log: journalctl --user -u async-core)"
+  say "Async's engine is running in the background and at every login (log: journalctl --user -u async-core)"
+
+  if [ -x "$desktop" ]; then
+    mkdir -p "$(dirname "$autostart")" "$(dirname "$menu_entry")"
+    cat > "$autostart" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Async
+Comment=Push the mouse through a screen edge to punch into another computer
+Exec=$desktop
+Icon=network-workgroup
+X-GNOME-Autostart-enabled=true
+EOF
+    # The menu entry opens Settings (a second launch while Async runs does exactly that).
+    cat > "$menu_entry" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Async
+Comment=Push the mouse through a screen edge to punch into another computer
+Exec=$desktop
+Icon=network-workgroup
+Categories=Network;RemoteAccess;
+EOF
+    if [ -n "${DISPLAY:-}" ]; then
+      sleep 1 # let the engine open its socket first
+      (nohup "$desktop" >/dev/null 2>&1 &)
+      say "Async's tray icon (a purple ring) is running, and starts at every login."
+    else
+      say "Async's tray icon starts at your next login (or run: async-desktop)."
+    fi
+  fi
 fi
 
 # Is there screen sharing for paired computers to reach?
@@ -135,11 +199,11 @@ EOF
   fi
 fi
 if listening 3389; then
-  say "Remote Desktop is on: paired Windows PCs will connect with it."
+  say "Remote Desktop is on: paired computers will connect with it."
 elif listening 5900; then
-  say "VNC screen sharing is on: paired Windows PCs will connect with it."
+  say "Screen sharing is on: paired computers will connect with it."
 else
-  warn "No screen sharing is turned on yet, so there's nothing to show."
+  warn "Screen sharing isn't on yet, so paired computers can't see this one."
   if [ "$os" = Darwin ]; then
     warn "Turn on System Settings > General > Sharing > Screen Sharing, click (i), turn on"
     warn "\"VNC viewers may control screen with password\" and set a password."
@@ -147,7 +211,7 @@ else
     warn "GNOME: Settings > System > Remote Desktop > Desktop Sharing (Remote Desktop, with a user and password)."
     warn "KDE Plasma 6: System Settings > Remote Desktop. Others: install xrdp, or a VNC server on port 5900."
   fi
-  warn "See docs/hosting.md for details. No need to reinstall afterwards."
+  warn "The guide (README.md next to this script) walks through it. No need to reinstall afterwards."
 fi
 
 if [ -t 0 ]; then
@@ -158,4 +222,4 @@ if [ -t 0 ]; then
     *) "$exe" pair-host ;;
   esac
 fi
-say "Done. Pair more devices any time with: \"$exe\" pair-host"
+say "Done. Pair more devices any time from Async's settings, or with: \"$exe\" pair-host"

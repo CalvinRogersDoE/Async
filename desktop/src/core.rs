@@ -76,8 +76,7 @@ pub fn socket_path() -> PathBuf {
 }
 
 fn data_dir() -> PathBuf {
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config")).join("async/core")
+    crate::config::folder().join("core")
 }
 
 impl Core {
