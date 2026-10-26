@@ -1,6 +1,6 @@
 [package]
 name = "async-desktop"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "Async for Linux and macOS: push the mouse through a screen edge to punch a portal into another computer"
 license = "MIT"

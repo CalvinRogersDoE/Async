@@ -34,6 +34,8 @@ sealed class EdgeWatcher : NativeWindow, IDisposable
     public event Action<Screen, Edge, Point, float>? Pushing;
     /// <summary>True while edges should do nothing (the pointer is over on another computer).</summary>
     public Func<bool>? Paused;
+    /// <summary>Whether a push may go through while a mouse button is held (a file drag crossing over).</summary>
+    public Func<Screen, Edge, bool>? AllowHeld;
 
     readonly Settings cfg;
     readonly int headerSize = Marshal.SizeOf<Native.RAWINPUTHEADER>();
@@ -94,7 +96,8 @@ sealed class EdgeWatcher : NativeWindow, IDisposable
         Native.GetCursorPos(out var c);
         var p = new Point(c.X, c.Y);
         if (Debug) Log.Write($"raw dx={dx} dy={dy} cursor={p} buttons={ButtonsDown()} captured={CursorCaptured()} cooldown={now < cooldownUntil}");
-        if (now < cooldownUntil || Paused?.Invoke() == true || ButtonsDown() || CursorCaptured()) { pushed = 0; return; }
+        bool held = ButtonsDown();
+        if (now < cooldownUntil || Paused?.Invoke() == true || CursorCaptured()) { pushed = 0; return; }
 
         var screen = Screen.FromPoint(p);
         var b = screen.Bounds;
@@ -117,6 +120,9 @@ sealed class EdgeWatcher : NativeWindow, IDisposable
         pushEdge = edge;
         lastPush = now;
         if (edge is not { } e) return;
+        // With a button held (dragging a window to snap it, say) edges do nothing, unless files are
+        // being dragged to a mouse-mode edge: then the drag carries on over to the other computer.
+        if (held && AllowHeld?.Invoke(screen, e) != true) { pushed = 0; return; }
 
         pushed += amount;
         // Mouse-mode edges need only a light push, with no minimum duration.

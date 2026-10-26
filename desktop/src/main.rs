@@ -12,6 +12,7 @@ mod app;
 mod config;
 mod core;
 mod edges;
+mod files;
 mod keymap;
 mod monitors;
 mod portal;

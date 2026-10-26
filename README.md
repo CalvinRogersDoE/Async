@@ -23,6 +23,11 @@ Hamachi…) and no ports to open on your router.
 - **Pick an edge for each computer:** Settings shows your monitors as they're arranged; click the top or a
   side of a screen and choose which paired computer it opens. The bottom is always the way back. The
   remote desktop resizes itself to fit the monitor.
+- **Portal or extend, per edge:** an edge can open a portal (the other computer's screen shows here), or
+  extend onto the other computer: the pointer and keyboard simply move over to it, like a monitor beside
+  yours, and come back when you move back out. Text you copy comes along.
+- **Send files and folders:** drop them onto a portal, or drag them across an extending edge. The other
+  computer asks where they should go (starting at the folder you picked last time).
 - **Deliberate pushes only:** resting at the edge, flicking past it, dragging a window to the top, or moving
   the camera in a game never triggers it. How hard and how long you push are adjustable.
 - **Edge glow:** the edge lights up as you push, so you can feel the portal about to open.
@@ -124,12 +129,23 @@ On the computer you'll punch **from**, click the purple ring → **Settings…**
    - **Linux with x11vnc:** nothing. It says *ready, nothing to enter*.
 2. Under **Screen edges**, click the top or a side of one of your screens and pick that computer. If
    it has several screens, pick which one to show.
-3. Click **Save**.
+3. In the same menu, choose what going through that edge does:
+   - **Show its screen here (portal):** the other computer's screen opens on your monitor.
+   - **Move the pointer over to it (extend):** your mouse and keyboard move over to the other computer,
+     and you use it on its own screen. A small arrow on the edge marks these. (A Mac asks once to let
+     **async-desktop** use **Accessibility**; allow it in System Settings → Privacy & Security.)
+4. Click **Save**.
 
 ### Step 4: punch through
 
 Push your mouse **hard** through that edge, as if you were trying to shove it off the screen. A portal
 opens onto the other computer. **Push down out of the bottom of the screen to come back.**
+
+On an extending edge a light push is enough: the pointer appears on the other computer's screen. Move it
+back out through the side it came in by to return. Async's hotkey (Ctrl+Alt+Up) also brings it back.
+
+To send files, drop them onto a portal, or drag them to an extending edge and carry on over. The other
+computer asks where to put them.
 
 Good to know:
 
@@ -138,7 +154,8 @@ Good to know:
 - When you punch into a Windows PC, its own screen shows the lock screen while you're in. Its programs
   keep running.
 - From a Mac or Linux computer you can punch into Windows PCs for now. Into Macs and Linux computers,
-  punch from a Windows PC.
+  punch from a Windows PC. Extending and sending files go from a Windows PC to a Mac or Linux computer
+  for now.
 - Stuck? The [full guide](docs/hosting.md) has more detail and a troubleshooting table.
 
 ## Roadmap
@@ -150,6 +167,9 @@ Good to know:
 - [x] The edge glows as you push; the cursor lands where you punched through
 - [x] Map edges to computers (top → desktop, right → laptop…)
 - [x] Punching *out* of macOS and Linux (into Windows PCs)
+- [x] Extend mode (the pointer and keyboard move over) and sending files, Windows to Mac and Linux
+- [ ] Extend and send files from Mac and Linux, and into Windows
+- [ ] Drop files exactly where the pointer is on the other computer
 - [ ] From macOS and Linux into other Macs and Linux computers; the edge glow on macOS and Linux
 - [ ] Wayland on Linux
 - [ ] Async's own screen streaming: one format on every system, and Windows Home as a host

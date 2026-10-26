@@ -45,6 +45,12 @@ Skip this if you only want to punch *out* of the Mac.
    **ⓘ** next to Screen Sharing lists who's allowed in, make sure that includes you (or pick
    **All users**).
 
+### 4. Let your other computers move the pointer (optional)
+
+For edges set to **extend** on your Windows PC (the pointer moves over instead of a portal opening), the
+Mac asks once to let **async-desktop** use **Accessibility**. Allow it: **System Settings → Privacy &
+Security → Accessibility** → turn on **async-desktop**.
+
 Then go to **[Pair and set up](#pair-and-set-up)**.
 
 ---
@@ -75,6 +81,10 @@ So your other computers can punch into this one. The installer tells you what's 
 | **Linux Mint (Cinnamon), MATE, Xfce** | Run `sudo apt install x11vnc`, then `./install.sh` again. It sets everything up, including a password your paired computers get on their own: nothing to type. |
 | **GNOME** (Ubuntu, Fedora, Pop!_OS) | **Settings → System → Remote Desktop → Desktop Sharing**: turn on Remote Desktop and Remote Control, and note the user name and password shown there. |
 | **KDE Plasma 6** | **System Settings → Remote Desktop**: turn it on and add a user and password. |
+
+For edges set to **extend** (the pointer moves over), copied text comes along if `xclip` is installed
+(`sudo apt install xclip`), and files sent to this computer ask where to go with a folder picker
+(`zenity`, already on Linux Mint and Ubuntu).
 
 Screen sharing set up this way only answers on the computer itself. Nothing is opened to your network;
 your other computers reach it through Async's encrypted connection.
@@ -131,6 +141,8 @@ logged into.
 | **This Mac needs its user name and password** | The same: the Mac's own name and password, with **Password…**. |
 | The device shows **· offline** | Async isn't running on it, or it's asleep or offline. Restarting it starts Async again. |
 | A wrong password message | Enter the password again in Settings. |
+| An extending edge moves nothing on the Mac | Allow **async-desktop** in System Settings → Privacy & Security → **Accessibility**, then quit Async from the menu-bar ring and log out and back in. |
+| "Couldn't move the pointer to …" | Async on that computer is too old or not running: update it there too. |
 
 ### Handy commands
 

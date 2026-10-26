@@ -18,6 +18,7 @@ sealed class AsyncApp : ApplicationContext
     readonly PortalForm portal;
     readonly CoreClient core;
     readonly MouseShare share;
+    readonly DragStrips strips;
     SoundPlayer soundIn, soundOut;
     readonly double slowmo = double.TryParse(Environment.GetEnvironmentVariable("ASYNC_SLOWMO"), out var f) && f > 0 ? f : 1;
     readonly ToolStripMenuItem startup;
@@ -40,6 +41,9 @@ sealed class AsyncApp : ApplicationContext
         share = new MouseShare(cfg, core, portal);
         edges.Paused = () => share.Active;
         share.Returned += _ => edges.Cooldown(600);
+        strips = new DragStrips(cfg);
+        edges.AllowHeld = (s, e) => strips.Files != null && cfg.IsMouseEdge(s.DeviceName, e);
+        portal.FilesDropped += files => SendFiles(portal.Device, files);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Punch in here", null, (_, _) => OnHotkey());
@@ -115,7 +119,16 @@ sealed class AsyncApp : ApplicationContext
     /// <summary>Mouse mode: the pointer and keyboard go over to the other computer.</summary>
     async Task CrossOver(string device, Screen s, Edge e, Point p)
     {
-        try { await share.Start(device, s, e, p); }
+        var dragged = strips.Files;
+        try
+        {
+            await share.Start(device, s, e, p);
+            if (dragged != null)
+            {
+                share.EndLocalDrag();
+                SendFiles(device, dragged);
+            }
+        }
         catch (Exception ex)
         {
             Log.Write($"Mouse mode couldn't start: {ex.Message}");
@@ -123,6 +136,12 @@ sealed class AsyncApp : ApplicationContext
             tray.ShowBalloonTip(5000, "Async", $"Couldn't move the pointer to {name}. Is Async running there, and up to date?", ToolTipIcon.Warning);
             edges.Cooldown(1500);
         }
+    }
+
+    void SendFiles(string device, string[] files)
+    {
+        string name = core.Devices.FirstOrDefault(d => d.Id == device)?.Name ?? "the other computer";
+        Run(FileSend.Send(core, device, name, files, text => portal.BeginInvoke(() => tray.ShowBalloonTip(4000, "Async", text, ToolTipIcon.Info))));
     }
 
     void OnHotkey()
@@ -327,6 +346,7 @@ sealed class AsyncApp : ApplicationContext
     {
         tray.Visible = false;
         share.Dispose();
+        strips.Dispose();
         portal.Disconnect();
         core.Dispose();
         edges.Dispose();

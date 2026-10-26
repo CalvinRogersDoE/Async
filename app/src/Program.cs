@@ -14,6 +14,13 @@ static class Program
             return;
         }
 
+        if (args.Length >= 4 && args[0] == "--files-test")
+        {
+            // --files-test HOST PORT PATH...: send files to a files service and print what happens.
+            try { FileSend.SendTo(args[1], int.Parse(args[2]), args[3..], Console.Error.WriteLine).GetAwaiter().GetResult(); Environment.Exit(0); }
+            catch (Exception e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); }
+        }
+
         if (args.Length >= 3 && args[0] == "--mouse-test")
         {
             Environment.Exit(DevTools.MouseTest(args[1], int.Parse(args[2])));

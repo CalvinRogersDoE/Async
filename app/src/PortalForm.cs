@@ -51,6 +51,8 @@ sealed class PortalForm : Form
     public string Device { get; private set; } = "";
     public bool Connected => usingVnc ? vnc.IsConnected : State == 1;
     public event Action<string>? StatusChanged;
+    /// <summary>Files or folders were dropped onto the portal, for the computer it shows.</summary>
+    public event Action<string[]>? FilesDropped;
 
     public PortalForm(Settings cfg, CoreClient core, Icon icon)
     {
@@ -92,6 +94,13 @@ sealed class PortalForm : Form
             StatusChanged?.Invoke("Not connected");
         };
         status.BringToFront();
+        // Drop files onto the portal and they go to that computer (it asks where to put them).
+        foreach (Control c in new Control[] { this, vnc, status })
+        {
+            c.AllowDrop = true;
+            c.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true && Device != "" ? DragDropEffects.Copy : DragDropEffects.None;
+            c.DragDrop += (_, e) => { if (e.Data?.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0) FilesDropped?.Invoke(files); };
+        }
         poll.Tick += (_, _) => Poll();
         poll.Start();
     }

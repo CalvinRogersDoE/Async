@@ -33,6 +33,7 @@ sealed class MouseShare : IDisposable
     readonly AutoResetEvent outboxReady = new(false);
 
     public bool Active { get; private set; }
+    bool swallowUp;
     bool live;
     /// <summary>Where along the edge the pointer last came back (tests).</summary>
     internal float? LastReturn { get; private set; }
@@ -122,6 +123,16 @@ sealed class MouseShare : IDisposable
         Returned?.Invoke(back);
     }
 
+    /// <summary>
+    /// A file drag crossed over with the pointer: finish it on this PC (a release Async makes itself,
+    /// which the hooks let through) and ignore the real release when it comes.
+    /// </summary>
+    public void EndLocalDrag()
+    {
+        swallowUp = true;
+        Native.mouse_event(Native.MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
+    }
+
     /// <summary>Takes the pointer back right away (the hotkey, or Async closing).</summary>
     public void Recall() => Stop(null, tellOther: true);
 
@@ -141,7 +152,11 @@ sealed class MouseShare : IDisposable
                 if (dx != 0 || dy != 0) SendMove(dx, dy);
                 break;
             case 0x201: SendButton(1, true); break;
-            case 0x202: SendButton(1, false); break;
+            case 0x202:
+                // The release that ends a file drag which crossed over: the other computer never saw it pressed.
+                if (swallowUp) { swallowUp = false; break; }
+                SendButton(1, false);
+                break;
             case 0x204: SendButton(3, true); break;
             case 0x205: SendButton(3, false); break;
             case 0x207: SendButton(2, true); break;

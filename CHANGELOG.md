@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Extend instead of a portal:** each edge can either open a portal or move the pointer and keyboard
+  over to the other computer, like a monitor beside yours (Windows to Mac and Linux for now). Copied
+  text comes along both ways. Choose it per edge in Settings.
+- **Send files and folders:** drop them onto a portal, or drag them across an extending edge. The other
+  computer asks where to put them, starting at the folder picked last time.
+- Smoother portals into a Mac: mouse moves go out at most every 17 ms, as noVNC and TigerVNC do
+  (a fast mouse flooded the Mac and made everything move in jumps). The log says whether the link
+  is direct or relayed.
+
 ## 0.3.2 (2026-10-25)
 
 - Much smoother portals into a Mac or Linux screen: screen updates are decoded straight into memory

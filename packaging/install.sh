@@ -107,6 +107,7 @@ EOF
     say "Async's menu-bar icon (a purple ring) is running, and starts at every login."
     warn "macOS will ask to let async-desktop use Input Monitoring: allow it, so Async notices"
     warn "you pushing through a screen edge (System Settings > Privacy & Security > Input Monitoring)."
+    warn "For edges your PC extends onto this Mac, it also asks for Accessibility (so the pointer can move)."
   fi
 else
   mkdir -p "$(dirname "$unit")"

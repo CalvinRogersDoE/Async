@@ -96,6 +96,10 @@ impl App {
         if let Err(e) = crate::share::spawn(cooldown.clone()) {
             eprintln!("mouse mode unavailable (port {} taken?): {e:#}", crate::share::PORT);
         }
+        // Files dropped onto this computer from a paired one.
+        if let Err(e) = crate::files::spawn() {
+            eprintln!("receiving files unavailable (port {} taken?): {e:#}", crate::files::PORT);
+        }
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
         Ok(Self {
             cfg,
