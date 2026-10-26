@@ -645,12 +645,43 @@ sealed class VncView : Control
 
     static int Bit(MouseButtons b) => b switch { MouseButtons.Left => 1, MouseButtons.Middle => 2, MouseButtons.Right => 4, _ => 0 };
 
-    protected override void OnMouseMove(MouseEventArgs e) => SendPointer(e.Location, buttons);
-    protected override void OnMouseDown(MouseEventArgs e) { Focus(); buttons |= Bit(e.Button); SendPointer(e.Location, buttons); }
-    protected override void OnMouseUp(MouseEventArgs e) { buttons &= ~Bit(e.Button); SendPointer(e.Location, buttons); }
+    // Mouse moves go out at most every 17 ms, latest position only, as noVNC and TigerVNC do. A
+    // 1000 Hz mouse would otherwise flood the server (a Mac handles each one before the next
+    // screen update), which makes everything on the remote screen move in jumps.
+    const int MoveInterval = 17;
+    readonly System.Diagnostics.Stopwatch sinceMove = System.Diagnostics.Stopwatch.StartNew();
+    System.Windows.Forms.Timer? moveTimer;
+    Point? pendingMove;
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        pendingMove = e.Location;
+        if (sinceMove.ElapsedMilliseconds >= MoveInterval) { FlushMove(); return; }
+        // The timer sends the last position if the mouse stops before the interval is up.
+        if (moveTimer == null)
+        {
+            moveTimer = new System.Windows.Forms.Timer { Interval = MoveInterval };
+            moveTimer.Tick += (_, _) => FlushMove();
+        }
+        if (!moveTimer.Enabled) moveTimer.Start();
+    }
+
+    /// <summary>Sends a held-back mouse move now (before a click, so the click lands where the pointer is).</summary>
+    void FlushMove()
+    {
+        moveTimer?.Stop();
+        if (pendingMove is not { } p) return;
+        pendingMove = null;
+        SendPointer(p, buttons);
+        sinceMove.Restart();
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e) { Focus(); FlushMove(); buttons |= Bit(e.Button); SendPointer(e.Location, buttons); }
+    protected override void OnMouseUp(MouseEventArgs e) { FlushMove(); buttons &= ~Bit(e.Button); SendPointer(e.Location, buttons); }
 
     protected override void OnMouseWheel(MouseEventArgs e)
     {
+        FlushMove();
         int wheel = e.Delta > 0 ? 8 : 16;
         for (int i = 0; i < Math.Max(1, Math.Abs(e.Delta) / 120); i++)
         {
@@ -743,6 +774,7 @@ sealed class VncView : Control
             lock (fbLock) FreeFramebuffer();
             zlib?.Dispose();
             cursorImage?.Dispose();
+            moveTimer?.Dispose();
             if (cursorHandle != IntPtr.Zero) DestroyIcon(cursorHandle);
         }
         base.Dispose(disposing);

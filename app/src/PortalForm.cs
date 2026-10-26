@@ -77,7 +77,14 @@ sealed class PortalForm : Form
         Controls.Add(rdp);
         Controls.Add(vnc);
         Controls.Add(status);
-        vnc.Connected += () => { Log.Write($"VNC connected to {vnc.RemoteName}"); StatusChanged?.Invoke($"Connected to {TargetName}"); };
+        vnc.Connected += async () =>
+        {
+            Log.Write($"VNC connected to {vnc.RemoteName}");
+            StatusChanged?.Invoke($"Connected to {TargetName}");
+            // Whether the tunnel goes straight to the device or through a relay (slower) matters a lot for screen sharing.
+            try { var (rtt, direct) = await core.Probe(Device); Log.Write($"Link to {TargetName}: {(direct ? "direct" : "through a relay")}, {rtt} ms"); }
+            catch (Exception e) { Log.Write($"Link check: {e.Message}"); }
+        };
         vnc.Disconnected += why =>
         {
             Log.Write($"VNC disconnected: {why}");

@@ -172,6 +172,21 @@ static class DevTools
         var clock = System.Diagnostics.Stopwatch.StartNew();
         while (view.Updates < updates && error == null && DateTime.Now < deadline) { Application.DoEvents(); Thread.Sleep(1); }
         double seconds = clock.Elapsed.TotalSeconds;
+        if (Environment.GetEnvironmentVariable("ASYNC_VNC_MOUSETEST") == "1" && error == null)
+        {
+            // A 1000 Hz mouse moving for one second: the server should see about 60 moves, not 1000.
+            var move = typeof(VncView).GetMethod("OnMouseMove", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            var spam = System.Diagnostics.Stopwatch.StartNew();
+            int moves = 0;
+            for (; spam.ElapsedMilliseconds < 1000; moves++)
+            {
+                move.Invoke(view, [new MouseEventArgs(MouseButtons.None, 0, 100 + moves % 500, 100, 0)]);
+                Application.DoEvents();
+                while (spam.Elapsed.TotalMilliseconds < moves + 1) { } // 1 ms apart, like a 1000 Hz mouse
+            }
+            Console.Error.WriteLine($"{moves} mouse moves in 1 s");
+            for (int i = 0; i < 10; i++) { Application.DoEvents(); Thread.Sleep(10); }
+        }
         if (error == null)
         {
             // How long one full redraw of the portal-sized view takes.

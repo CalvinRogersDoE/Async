@@ -8,3 +8,6 @@ dist/
 
 # Private notes kept next to the code, not part of the project
 BORROWED.md
+
+# Untagged builds handed out for testing
+test-build/
