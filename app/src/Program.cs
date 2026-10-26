@@ -37,6 +37,13 @@ static class Program
             Environment.Exit(DevTools.MouseTest(args[1], int.Parse(args[2])));
         }
 
+        if (args.Length >= 2 && args[0] == "--input-receive-test")
+        {
+            // --input-receive-test SECONDS: receive another computer's pointer in dry run (nothing is injected).
+            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+            Environment.Exit(DevTools.InputReceiveTest(int.Parse(args[1])));
+        }
+
         if (args.Length >= 4 && args[0] == "--vnc-snapshot")
         {
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);

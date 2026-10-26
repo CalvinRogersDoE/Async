@@ -9,6 +9,7 @@
 //! It drives the async-core service that install.sh sets up, over that service's local socket.
 
 mod app;
+mod capture;
 mod config;
 mod core;
 mod edges;
@@ -19,7 +20,9 @@ mod portal;
 mod rdp;
 mod settings;
 mod share;
+mod strips;
 mod tray;
+mod vnc;
 
 use std::os::unix::net::{UnixListener, UnixStream};
 

@@ -212,6 +212,121 @@ fn platform_pick(prompt: &str, start: &Path) -> Picked {
         .unwrap_or(Picked::NoPicker)
 }
 
+// ---------- sending ----------
+
+/// Sends files and folders to a paired computer, which asks where they go. Blocks until done (or
+/// declined), so call it from a thread of its own; tells the person how it went.
+pub fn send(core: &crate::core::Core, device: &str, device_name: &str, paths: &[PathBuf]) {
+    let result = (|| -> Result<String> {
+        let entries = collect(paths);
+        if entries.is_empty() {
+            bail!("nothing to send");
+        }
+        let what = summary(&entries.iter().map(|(rel, _, size)| Entry { path: rel.clone(), size: *size }).collect::<Vec<_>>(), entries.iter().filter(|e| e.1.is_some()).count());
+        let (host, port) = core.open_service(device, "files")?;
+        send_to(&host, port, &entries)?.map(|folder| format!("Sent {what} to {folder} on {device_name}.")).ok_or_else(|| anyhow::anyhow!("{device_name} didn't take {what}"))
+    })();
+    match result {
+        Ok(done) => crate::app::notify("Async", &done),
+        Err(e) => crate::app::notify("Async", &format!("Couldn't send to {device_name}: {e:#}")),
+    }
+}
+
+/// (relative path, the file to read or None for a folder, size)
+type Outgoing = (String, Option<PathBuf>, u64);
+
+fn collect(paths: &[PathBuf]) -> Vec<Outgoing> {
+    fn walk(dir: &Path, rel: &str, out: &mut Vec<Outgoing>) {
+        out.push((format!("{rel}/"), None, 0));
+        let Ok(read) = std::fs::read_dir(dir) else { return };
+        let mut items: Vec<_> = read.flatten().collect();
+        items.sort_by_key(|e| e.file_name());
+        for item in items {
+            let name = item.file_name().to_string_lossy().into_owned();
+            let path = item.path();
+            // Symlinks are skipped: following them could send far more than was dropped.
+            let Ok(kind) = item.file_type() else { continue };
+            if kind.is_dir() {
+                walk(&path, &format!("{rel}/{name}"), out);
+            } else if kind.is_file() {
+                let size = item.metadata().map(|m| m.len()).unwrap_or(0);
+                out.push((format!("{rel}/{name}"), Some(path), size));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for p in paths {
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if name.is_empty() {
+            continue;
+        }
+        if p.is_dir() {
+            walk(p, &name, &mut out);
+        } else if p.is_file() {
+            out.push((name, Some(p.clone()), p.metadata().map(|m| m.len()).unwrap_or(0)));
+        }
+    }
+    out
+}
+
+/// Sends to a files service at host:port; the folder name they went into, or None if declined.
+fn send_to(host: &str, port: u16, entries: &[Outgoing]) -> Result<Option<String>> {
+    let stream = TcpStream::connect((host, port))?;
+    stream.set_nodelay(true).ok();
+    let mut input = BufReader::new(stream.try_clone()?);
+    let mut out = std::io::BufWriter::with_capacity(1 << 20, stream);
+    let mut head = vec![1u8];
+    write_string(&mut head, &computer_name());
+    head.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+    for (rel, _, size) in entries {
+        write_string(&mut head, rel);
+        head.extend_from_slice(&size.to_le_bytes());
+    }
+    out.write_all(&head)?;
+    out.flush()?;
+    // Waits as long as the person takes to pick a folder over there.
+    let mut answer = [0u8; 1];
+    input.read_exact(&mut answer)?;
+    if answer[0] != 1 {
+        return Ok(None);
+    }
+    let folder = read_string(&mut input)?;
+    let mut buf = vec![0u8; 1 << 20];
+    for (rel, path, size) in entries {
+        let Some(path) = path else { continue };
+        let mut file = std::fs::File::open(path).with_context(|| format!("opening {rel}"))?;
+        let mut left = *size;
+        while left > 0 {
+            let want = left.min(buf.len() as u64) as usize;
+            let n = file.read(&mut buf[..want])?;
+            if n == 0 {
+                bail!("{rel} got shorter while it was being sent");
+            }
+            out.write_all(&buf[..n])?;
+            left -= n as u64;
+        }
+    }
+    out.flush()?;
+    input.read_exact(&mut answer)?;
+    if answer[0] != 1 {
+        bail!("the other computer stopped partway");
+    }
+    Ok(Some(folder))
+}
+
+/// This computer's name, as the other one shows it ("from …").
+fn computer_name() -> String {
+    let ask = |cmd: &str, args: &[&str]| std::process::Command::new(cmd).args(args).output().ok().and_then(|o| String::from_utf8(o.stdout).ok());
+    cfg!(target_os = "macos")
+        .then(|| ask("scutil", &["--get", "ComputerName"]))
+        .flatten()
+        .or_else(|| std::fs::read_to_string("/etc/hostname").ok())
+        .or_else(|| ask("hostname", &[]))
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "another computer".into())
+}
+
 // ---------- wire helpers ----------
 
 fn read_u16(r: &mut impl Read) -> Result<u16> {

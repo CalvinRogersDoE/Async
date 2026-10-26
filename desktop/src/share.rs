@@ -14,9 +14,12 @@
 //! | 7    | Clipboard | len u32, UTF-8 text          | both ways        |
 //! | 8    | Release   |                              | to this computer |
 //!
-//! Edges are 0 top, 1 bottom, 2 left, 3 right, seen from this computer. Buttons are 1 left,
+//! Edges are 0 top, 1 bottom, 2 left, 3 right, seen from the receiving computer. Buttons are 1 left,
 //! 2 middle, 3 right, 4 back, 5 forward. The pointer appears on the edge it came in through and goes
 //! back when it's pushed out through that same edge.
+//!
+//! The sending side ([`cross`]) is here too: it takes this computer's mouse and keyboard (see
+//! [`capture`](crate::capture)) while the pointer is over there.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -241,6 +244,178 @@ fn read_u32(r: &mut impl Read) -> Result<u32> {
 }
 fn read_f32(r: &mut impl Read) -> Result<f32> {
     Ok(f32::from_bits(read_u32(r)?))
+}
+
+// ---------- the sending side ----------
+
+/// The pointer is over on another computer; dropping this brings it back.
+pub struct Outgoing {
+    stop: std::sync::Arc<dyn Fn() + Send + Sync>,
+}
+
+impl Drop for Outgoing {
+    fn drop(&mut self) {
+        (self.stop)();
+    }
+}
+
+/// Sends the pointer and keyboard over to `device` through `edge` of monitor `m`, entering where it
+/// left at (x, y). Blocks while the tunnel opens, so call it from a thread of its own. `back` runs
+/// (on some thread) once the pointer is home again, with where it came back.
+pub fn cross(core: &crate::core::Core, device: &str, m: &Monitor, edge: crate::config::Edge, x: i32, y: i32, back: impl Fn(i32, i32) + Send + Sync + 'static) -> Result<Outgoing> {
+    use crate::capture::{self, Captured};
+    use crate::config::Edge;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    let (host, port) = core.open_service(device, "input")?;
+    let stream = TcpStream::connect((host.as_str(), port))?;
+    stream.set_nodelay(true).ok();
+    let mut out = stream.try_clone()?;
+
+    let pos = if edge.horizontal() { (x - m.x) as f32 / m.w.max(1) as f32 } else { (y - m.y) as f32 / m.h.max(1) as f32 };
+    let opposite = match edge {
+        Edge::Top => Side::Bottom,
+        Edge::Bottom => Side::Top,
+        Edge::Left => Side::Right,
+        Edge::Right => Side::Left,
+    };
+    let mut enter = vec![1, opposite.byte()];
+    enter.extend_from_slice(&pos.clamp(0.0, 1.0).to_le_bytes());
+    out.write_all(&enter)?;
+    if let Some(text) = platform::clipboard_get() {
+        send_clipboard(&mut out, &text)?;
+    }
+
+    let (tx, rx) = std::sync::mpsc::channel::<Captured>();
+    let center = (m.x + m.w / 2, m.y + m.h / 2);
+    let grip = capture::start(center, move |c| {
+        let _ = tx.send(c);
+    })?;
+    crate::edges::PAUSED.store(true, Ordering::Relaxed);
+
+    // Stopping: let go of the mouse and keyboard, put the pointer back on the edge it left by.
+    let grip = Arc::new(Mutex::new(Some(grip)));
+    let done = Arc::new(AtomicBool::new(false));
+    let m = m.clone();
+    let stop: Arc<dyn Fn(Option<f32>) + Send + Sync> = {
+        let (grip, done) = (grip.clone(), done.clone());
+        let shut = stream.try_clone()?;
+        Arc::new(move |at: Option<f32>| {
+            if done.swap(true, Ordering::Relaxed) {
+                return;
+            }
+            drop(grip.lock().unwrap().take());
+            let _ = shut.shutdown(std::net::Shutdown::Both);
+            let p = at.unwrap_or(0.5).clamp(0.0, 1.0);
+            let (bx, by) = match edge {
+                Edge::Left => (m.x + 2, m.y + (p * (m.h - 1) as f32) as i32),
+                Edge::Right => (m.right() - 3, m.y + (p * (m.h - 1) as f32) as i32),
+                Edge::Top => (m.x + (p * (m.w - 1) as f32) as i32, m.y + 2),
+                Edge::Bottom => (m.x + (p * (m.w - 1) as f32) as i32, m.bottom() - 3),
+            };
+            capture::warp(bx, by);
+            crate::edges::PAUSED.store(false, Ordering::Relaxed);
+            back(bx, by);
+        })
+    };
+
+    // Writer: what capture took, as frames; moves that piled up go as one.
+    {
+        let (stop, done) = (stop.clone(), done.clone());
+        std::thread::Builder::new().name("mouse-out".into()).spawn(move || {
+            while let Ok(first) = rx.recv() {
+                if done.load(Ordering::Relaxed) {
+                    break;
+                }
+                let mut batch = vec![first];
+                batch.extend(rx.try_iter());
+                let mut bytes = Vec::new();
+                let (mut mx, mut my) = (0i32, 0i32);
+                let flush = |bytes: &mut Vec<u8>, mx: &mut i32, my: &mut i32| {
+                    if *mx != 0 || *my != 0 {
+                        bytes.push(2);
+                        bytes.extend_from_slice(&((*mx).clamp(i16::MIN as i32, i16::MAX as i32) as i16).to_le_bytes());
+                        bytes.extend_from_slice(&((*my).clamp(i16::MIN as i32, i16::MAX as i32) as i16).to_le_bytes());
+                        (*mx, *my) = (0, 0);
+                    }
+                };
+                let mut recall = false;
+                for c in batch {
+                    if let Captured::Move(dx, dy) = c {
+                        mx += dx;
+                        my += dy;
+                        continue;
+                    }
+                    flush(&mut bytes, &mut mx, &mut my);
+                    match c {
+                        Captured::Button(b, down) => bytes.extend_from_slice(&[3, b, down as u8]),
+                        Captured::Wheel(dy, dx) => {
+                            bytes.push(4);
+                            bytes.extend_from_slice(&dy.to_le_bytes());
+                            bytes.extend_from_slice(&dx.to_le_bytes());
+                        }
+                        Captured::Key(code, down) => {
+                            bytes.push(5);
+                            bytes.extend_from_slice(&code.to_le_bytes());
+                            bytes.push(down as u8);
+                        }
+                        Captured::Recall => recall = true,
+                        Captured::Move(..) => {}
+                    }
+                }
+                flush(&mut bytes, &mut mx, &mut my);
+                if recall {
+                    bytes.push(8);
+                }
+                if !bytes.is_empty() && out.write_all(&bytes).is_err() {
+                    stop(None);
+                    break;
+                }
+                if recall {
+                    stop(None);
+                    break;
+                }
+            }
+        })?;
+    }
+
+    // Reader: the other computer says when the pointer leaves, and sends its clipboard along.
+    {
+        let stop = stop.clone();
+        let mut input = std::io::BufReader::new(stream);
+        std::thread::Builder::new().name("mouse-in".into()).spawn(move || {
+            loop {
+                let Ok(kind) = read_u8(&mut input) else { break };
+                match kind {
+                    6 => {
+                        let _ = read_u8(&mut input);
+                        let pos = read_f32(&mut input).ok();
+                        stop(pos);
+                    }
+                    7 => {
+                        let Ok(len) = read_u32(&mut input) else { break };
+                        let mut text = vec![0u8; (len as usize).min(16 << 20)];
+                        if input.read_exact(&mut text).is_err() {
+                            break;
+                        }
+                        platform::clipboard_set(&String::from_utf8_lossy(&text));
+                    }
+                    _ => break,
+                }
+            }
+            stop(None);
+        })?;
+    }
+
+    Ok(Outgoing { stop: Arc::new(move || stop(None)) })
+}
+
+/// A macOS key code as the Linux evdev code mouse mode sends (Command travels as Ctrl, so the
+/// other computer's shortcuts work; `mac_key` is the other direction).
+#[cfg(target_os = "macos")]
+pub fn evdev_from_mac(mac: u16) -> Option<u16> {
+    (1..256).find(|&code| platform::mac_key(code) == Some(mac))
 }
 
 // ---------- elsewhere: prints what it would do (for testing the protocol on a development PC) ----------
@@ -565,7 +740,7 @@ mod platform {
     }
 
     /// Linux evdev key code -> macOS virtual key code (Carbon's kVK_ values).
-    fn mac_key(code: u16) -> Option<u16> {
+    pub fn mac_key(code: u16) -> Option<u16> {
         Some(match code {
             1 => 0x35,                                                            // Esc
             2 => 0x12, 3 => 0x13, 4 => 0x14, 5 => 0x15, 6 => 0x17,                // 1-5

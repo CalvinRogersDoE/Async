@@ -1,6 +1,9 @@
-//! The running app: turns edge pushes into portals, plays the open/close animations, and keeps the
-//! Remote Desktop session going while the portal is hidden so the next punch is instant.
+//! The running app: turns edge pushes into portals (or, on edges set to extend, sends the pointer
+//! over), plays the open/close animations, keeps the Remote Desktop session going while the portal
+//! is hidden so the next punch is instant, and sends files dropped onto the portal or a drop strip.
 
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -14,7 +17,9 @@ use crate::core::{self as async_core, Core, Device, RemoteScreen};
 use crate::edges::{self, Cooldown, Push};
 use crate::monitors::Monitor;
 use crate::portal::Portal;
-use crate::rdp::{self, Session};
+use crate::rdp;
+use crate::share::Outgoing;
+use crate::strips::{Dropped, Strips};
 use crate::tray::{self, MenuCmd};
 
 pub enum AppEvent {
@@ -23,6 +28,47 @@ pub enum AppEvent {
     /// The tunnel for session `epoch` is open (or failed).
     Tunnel { epoch: u64, result: Result<Opened, String> },
     Rdp { epoch: u64, out: rdp::Out },
+    /// The left mouse button went down or up (drop strips come and go with it).
+    Held(bool),
+    /// Paired devices showing this computer in a portal right now.
+    Viewers(Vec<String>),
+    /// The pointer went over to another computer (mouse mode), or couldn't.
+    Crossed(Result<Outgoing, String>),
+    /// The pointer is back from the other computer.
+    Back,
+}
+
+/// A portal's connection: Remote Desktop (Windows, some Linux) or VNC (Macs, Linux with x11vnc).
+enum Session {
+    Rdp(rdp::Session),
+    Vnc(crate::vnc::Session),
+}
+
+impl Session {
+    fn close(&mut self) {
+        match self {
+            Session::Rdp(s) => s.close(),
+            Session::Vnc(s) => s.close(),
+        }
+    }
+    fn release_all(&mut self) {
+        match self {
+            Session::Rdp(s) => s.release_all(),
+            Session::Vnc(s) => s.release_all(),
+        }
+    }
+    fn mouse_to(&mut self, x: f64, y: f64) {
+        match self {
+            Session::Rdp(s) => s.mouse_to(x, y),
+            Session::Vnc(s) => s.mouse_to(x, y),
+        }
+    }
+    fn window_input(&mut self, event: &WindowEvent, to_desktop: impl Fn(f64, f64) -> Option<(f64, f64)>) {
+        match self {
+            Session::Rdp(s) => s.window_input(event, to_desktop),
+            Session::Vnc(s) => s.window_input(event, to_desktop),
+        }
+    }
 }
 
 /// A tunnel into a device's screen sharing, with what's needed to start the session.
@@ -32,6 +78,8 @@ pub struct Opened {
     service: String,
     password: Option<String>,
     screens: Vec<RemoteScreen>,
+    /// Screen sharing Async set up itself on the device (Linux) tells paired devices its password.
+    vnc_password: Option<String>,
 }
 
 /// What pushing through an edge does.
@@ -82,6 +130,14 @@ pub struct App {
     devices: Vec<Device>,
     devices_at: Option<Instant>,
     tray: Option<tray::Handle>,
+    /// Mouse mode: the pointer is over on another computer while this is Some.
+    outgoing: Option<Outgoing>,
+    crossing: bool,
+    strips: Strips,
+    strips_close_at: Option<Instant>,
+    viewers: Vec<String>,
+    /// Files dropped (one event each) waiting a moment for the rest: (device, files, since).
+    drops: Option<(String, Vec<PathBuf>, Instant)>,
 }
 
 impl App {
@@ -99,6 +155,31 @@ impl App {
         // Files dropped onto this computer from a paired one.
         if let Err(e) = crate::files::spawn() {
             eprintln!("receiving files unavailable (port {} taken?): {e:#}", crate::files::PORT);
+        }
+        // Watches the left button (drop strips appear while it's held) and who's viewing this computer.
+        {
+            let (p, core) = (proxy.clone(), core.clone());
+            std::thread::Builder::new().name("watch".into()).spawn(move || {
+                let (mut held, mut viewers, mut tick) = (false, Vec::<String>::new(), 0u32);
+                loop {
+                    std::thread::sleep(Duration::from_millis(60));
+                    let now = crate::capture::left_button_held();
+                    if now != held {
+                        held = now;
+                        if p.send_event(AppEvent::Held(now)).is_err() {
+                            return;
+                        }
+                    }
+                    tick += 1;
+                    if tick % 33 == 0 {
+                        let list = core.viewers().unwrap_or_default();
+                        if list != viewers {
+                            viewers = list.clone();
+                            let _ = p.send_event(AppEvent::Viewers(list));
+                        }
+                    }
+                }
+            })?;
         }
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
         Ok(Self {
@@ -120,6 +201,12 @@ impl App {
             devices: Vec::new(),
             devices_at: None,
             tray: None,
+            outgoing: None,
+            crossing: false,
+            strips: Strips::default(),
+            strips_close_at: None,
+            viewers: Vec::new(),
+            drops: None,
         })
     }
 
@@ -184,6 +271,13 @@ impl App {
         self.refresh();
         // Building pushes would light the edge up; that needs a compositor-backed overlay, coming later.
         let Push::Fired { monitor, edge, x, y } = push else { return };
+        let mouse = self.cfg.lock().unwrap().is_mouse_edge(&monitor.name, edge);
+        if mouse && !self.portal_open() {
+            if let Some(Act::Open(device, _)) = self.decide(&monitor, edge) {
+                self.cross(monitor, edge, x, y, device);
+            }
+            return;
+        }
         match self.decide(&monitor, edge) {
             Some(Act::Open(device, screen)) if self.portal_open() && device == self.device => {
                 if let Some(n) = screen {
@@ -195,6 +289,65 @@ impl App {
             Some(Act::Screen(n)) => self.show_screen(n),
             Some(Act::Close) => self.start_close(edge, x, y, None),
             None => {}
+        }
+    }
+
+    /// Mouse mode: sends the pointer and keyboard over to `device`; files being dragged go with it.
+    fn cross(&mut self, m: Monitor, e: Edge, x: i32, y: i32, device: String) {
+        if self.outgoing.is_some() || self.crossing {
+            return;
+        }
+        self.crossing = true;
+        let files = if edges::FILE_DRAG.load(Ordering::Relaxed) { std::mem::take(&mut self.strips.files) } else { Vec::new() };
+        edges::FILE_DRAG.store(false, Ordering::Relaxed);
+        let (core, proxy, name) = (self.core.clone(), self.proxy.clone(), self.name_of(&device));
+        std::thread::spawn(move || {
+            if !files.is_empty() {
+                // End the drag here (it drops onto the strip, which ignores it) before taking the mouse.
+                crate::capture::release_left();
+                std::thread::sleep(Duration::from_millis(80));
+            }
+            let back = {
+                let proxy = proxy.clone();
+                move |_, _| {
+                    let _ = proxy.send_event(AppEvent::Back);
+                }
+            };
+            let result = crate::share::cross(&core, &device, &m, e, x, y, back).map_err(|err| format!("Couldn't move the pointer to {name}: {err:#}"));
+            let ok = result.is_ok();
+            let _ = proxy.send_event(AppEvent::Crossed(result));
+            if ok && !files.is_empty() {
+                crate::files::send(&core, &device, &name, &files);
+            }
+        });
+    }
+
+    /// Sends files to `device` (it asks where they go) on a thread of its own.
+    fn send_files(&self, device: String, files: Vec<PathBuf>) {
+        let (core, name) = (self.core.clone(), self.name_of(&device));
+        std::thread::spawn(move || crate::files::send(&core, &device, &name, &files));
+    }
+
+    /// Drop strips for every edge a file drag can leave by right now.
+    fn show_strips(&mut self, event_loop: &ActiveEventLoop) {
+        self.refresh();
+        let cfg = self.cfg.lock().unwrap().clone();
+        let first = self.devices.first().map(|d| d.id.clone());
+        let mut list = Vec::new();
+        for m in crate::monitors::list_now() {
+            for e in Edge::MAPPABLE {
+                if cfg.is_mouse_edge(&m.name, e) {
+                    if let Some((d, _)) = cfg.device_for(&m.name, e, first.as_deref()) {
+                        list.push((m.clone(), e, Some(d)));
+                    }
+                }
+            }
+            if !self.viewers.is_empty() {
+                list.push((m.clone(), Edge::Bottom, None));
+            }
+        }
+        if !list.is_empty() {
+            self.strips.show(event_loop, &list, cfg.color_in);
         }
     }
 
@@ -263,16 +416,30 @@ impl App {
         std::thread::spawn(move || {
             let result = core
                 .open_screen(&device)
-                .map(|(host, port, service)| Opened {
-                    host,
-                    port,
-                    service,
-                    password: secrets::get(&device),
-                    screens: core.describe(&device).map(|i| async_core::sorted(i.screens)).unwrap_or_default(),
+                .map(|(host, port, service)| {
+                    let info = core.describe(&device).ok();
+                    Opened {
+                        host,
+                        port,
+                        service,
+                        password: secrets::get(&device),
+                        screens: info.as_ref().map(|i| async_core::sorted(i.screens.clone())).unwrap_or_default(),
+                        vnc_password: info.and_then(|i| i.vnc_password),
+                    }
                 })
                 .map_err(|e| format!("Couldn't reach {name}: {e:#}"));
             let _ = proxy.send_event(AppEvent::Tunnel { epoch, result });
         });
+    }
+
+    fn queue_drop(&mut self, device: String, files: Vec<PathBuf>) {
+        match &mut self.drops {
+            Some((d, list, at)) if *d == device => {
+                list.extend(files);
+                *at = Instant::now();
+            }
+            _ => self.drops = Some((device, files, Instant::now())),
+        }
     }
 
     fn name_of(&self, device: &str) -> String {
@@ -284,17 +451,26 @@ impl App {
             return;
         }
         let name = self.name_of(&self.device);
-        let Opened { host, port, service, password, screens } = match result {
+        let Opened { host, port, service, password, screens, vnc_password } = match result {
             Ok(v) => v,
             Err(e) => return self.fail(&e),
         };
         self.screens = screens;
         let wanted = self.screen.filter(|&n| n < self.screens.len());
         self.show_screen(wanted.unwrap_or_else(|| self.screens.iter().position(|s| s.primary).unwrap_or(0)));
-        if service == "vnc" {
-            return self.fail(&format!("{name} shares its screen over VNC (a Mac, or Linux). Punching into those from Linux is coming next; Windows computers work now."));
-        }
         let user = self.cfg.lock().unwrap().user_for(&self.device);
+        if service == "vnc" {
+            // A Mac signs in with its own user name and password; x11vnc that Async set up needs nothing typed.
+            let password = vnc_password.or(password).unwrap_or_default();
+            let proxy = self.proxy.clone();
+            match crate::vnc::Session::start(self.rt.handle(), &host, port, &user, &password, move |out| {
+                let _ = proxy.send_event(AppEvent::Rdp { epoch, out });
+            }) {
+                Ok(s) => self.session = Some(Session::Vnc(s)),
+                Err(e) => self.fail(&format!("Couldn't open screen sharing on {name}: {e:#}")),
+            }
+            return;
+        }
         let Some(password) = password.filter(|_| !user.is_empty()) else {
             self.fail(&format!("No sign-in saved for {name} yet. Open Async's settings and enter its user and password."));
             open_settings();
@@ -305,7 +481,7 @@ impl App {
         match Session::start(self.rt.handle(), &host, port, &user, &password, size, &self.screens, move |out| {
             let _ = proxy.send_event(AppEvent::Rdp { epoch, out });
         }) {
-            Ok(s) => self.session = Some(s),
+            Ok(s) => self.session = Some(Session::Rdp(s)),
             Err(e) => self.fail(&format!("Couldn't start Remote Desktop: {e:#}")),
         }
     }
@@ -472,6 +648,29 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::Menu(cmd) => self.on_menu(cmd, event_loop),
             AppEvent::Tunnel { epoch, result } => self.on_tunnel(epoch, result),
             AppEvent::Rdp { epoch, out } => self.on_rdp(epoch, out),
+            AppEvent::Held(true) => {
+                self.strips_close_at = None;
+                if self.outgoing.is_none() && !self.strips.showing() {
+                    self.show_strips(event_loop);
+                }
+            }
+            // Kept a moment after the button goes up, so the drop itself still lands on a strip.
+            AppEvent::Held(false) => self.strips_close_at = self.strips.showing().then(|| Instant::now() + Duration::from_millis(1500)),
+            AppEvent::Viewers(list) => self.viewers = list,
+            AppEvent::Crossed(result) => {
+                self.crossing = false;
+                match result {
+                    Ok(out) => self.outgoing = Some(out),
+                    Err(why) => {
+                        notify("Async", &why);
+                        edges::cool_down(&self.cooldown, 1500);
+                    }
+                }
+            }
+            AppEvent::Back => {
+                self.outgoing = None;
+                edges::cool_down(&self.cooldown, 600);
+            }
         }
         if self.anim.is_some() {
             event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now()));
@@ -479,6 +678,31 @@ impl ApplicationHandler<AppEvent> for App {
     }
 
     fn window_event(&mut self, _event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if self.strips.owns(_id) {
+            match event {
+                WindowEvent::HoveredFile(path) => {
+                    self.strips.hovered(path);
+                    edges::FILE_DRAG.store(true, Ordering::Relaxed);
+                }
+                WindowEvent::DroppedFile(path) => {
+                    if let Some(Dropped::ToViewer(files)) = self.strips.dropped(_id, path) {
+                        if let Some(viewer) = self.viewers.first().cloned() {
+                            self.queue_drop(viewer, files);
+                        }
+                    }
+                }
+                WindowEvent::RedrawRequested => self.strips.redraw(_id),
+                _ => {}
+            }
+            return;
+        }
+        // Files dropped onto the portal go to the computer it shows.
+        if let WindowEvent::DroppedFile(path) = &event {
+            if self.portal_open() && !self.device.is_empty() {
+                self.queue_drop(self.device.clone(), vec![path.clone()]);
+            }
+            return;
+        }
         match &event {
             WindowEvent::RedrawRequested => {
                 if self.anim.is_none() {
@@ -500,8 +724,24 @@ impl ApplicationHandler<AppEvent> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        if self.strips_close_at.is_some_and(|t| now >= t) {
+            self.strips_close_at = None;
+            self.strips.hide();
+            edges::FILE_DRAG.store(false, Ordering::Relaxed);
+        }
+        // A drop of several files arrives one event per file: send them together.
+        let drops_due = self.drops.as_ref().map(|d| d.2 + Duration::from_millis(250));
+        if drops_due.is_some_and(|t| now >= t) {
+            if let Some((device, files, _)) = self.drops.take() {
+                self.send_files(device, files);
+            }
+        }
+        let later = [self.strips_close_at, self.drops.as_ref().map(|d| d.2 + Duration::from_millis(250))].into_iter().flatten().min();
         if self.step() {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(14)));
+            event_loop.set_control_flow(ControlFlow::WaitUntil(now + Duration::from_millis(14)));
+        } else if let Some(t) = later {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(t));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
         }

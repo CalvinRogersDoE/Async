@@ -3,10 +3,12 @@
 ## Unreleased
 
 - **Extend instead of a portal:** each edge can either open a portal or move the pointer and keyboard
-  over to the other computer, like a monitor beside yours (Windows to Mac and Linux for now). Copied
-  text comes along both ways. Choose it per edge in Settings.
-- **Send files and folders:** drop them onto a portal, or drag them across an extending edge. The other
+  over to the other computer, like a monitor beside yours, between Windows, macOS and Linux in every
+  direction. Copied text comes along both ways. Choose it per edge in Settings.
+- **Send files and folders, every direction:** drop them onto a portal, drag them out through the
+  bottom of a portal back to your own computer, or drag them across an extending edge. The receiving
   computer asks where to put them, starting at the folder picked last time.
+- **Portals from a Mac or Linux computer into Macs and Linux computers** (their screen sharing, VNC).
 - Smoother portals into a Mac: mouse moves go out at most every 17 ms, as noVNC and TigerVNC do
   (a fast mouse flooded the Mac and made everything move in jumps). The log says whether the link
   is direct or relayed.

@@ -39,6 +39,12 @@ pub struct Settings {
     /// Which paired device each monitor edge opens, keyed "<monitor>/<Edge>". None until set in
     /// Settings, which means every free top edge opens the first paired device.
     pub edges: Option<HashMap<String, String>>,
+    /// What each mapped edge does, keyed like `edges`: "portal" (the other computer's screen opens
+    /// here) or "mouse" (the pointer and keyboard move over to it, like a monitor beside this one).
+    /// Missing means portal.
+    pub modes: HashMap<String, String>,
+    /// How hard to push through a mouse-mode edge: lighter than a portal.
+    pub mouse_push_distance: u32,
     /// The user to sign in as on each device (Remote Desktop), by device id.
     pub users: HashMap<String, String>,
     /// How hard to push against the edge, in raw mouse counts.
@@ -57,6 +63,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             edges: None,
+            modes: HashMap::new(),
+            mouse_push_distance: 120,
             users: HashMap::new(),
             push_distance: 700,
             push_gap_ms: 300,
@@ -125,6 +133,10 @@ impl Settings {
                 (d.to_string(), screen)
             }),
         }
+    }
+
+    pub fn is_mouse_edge(&self, monitor: &str, e: Edge) -> bool {
+        e != Edge::Bottom && self.modes.get(&edge_key(monitor, e)).is_some_and(|m| m == "mouse")
     }
 
     pub fn user_for(&self, device: &str) -> String {

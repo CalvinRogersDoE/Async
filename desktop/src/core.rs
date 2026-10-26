@@ -26,6 +26,9 @@ pub struct DeviceInfo {
     /// The device's monitors (Windows), in desktop pixels with its main one at (0, 0).
     #[serde(default)]
     pub screens: Vec<RemoteScreen>,
+    /// The password of screen sharing Async set up itself (x11vnc on Linux), handed only to paired devices.
+    #[serde(default)]
+    pub vnc_password: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
@@ -148,6 +151,20 @@ impl Core {
         let port = r["port"].as_u64().context("no port in the tunnel reply")? as u16;
         let service = r["service"].as_str().unwrap_or("rdp").to_string();
         Ok((host, port, service))
+    }
+
+    /// Opens a tunnel to one of Async's own services on the device ("input" or "files"): (host, port).
+    pub fn open_service(&self, peer: &str, service: &str) -> Result<(String, u16)> {
+        let r = self.request(json!({ "cmd": "tunnel", "peer": peer, "service": service }), Duration::from_secs(40))?;
+        let host = r["host"].as_str().unwrap_or("127.0.0.1").to_string();
+        let port = r["port"].as_u64().context("no port in the tunnel reply")? as u16;
+        Ok((host, port))
+    }
+
+    /// Paired devices showing this computer in a portal right now.
+    pub fn viewers(&self) -> Result<Vec<String>> {
+        let r = self.request(json!({ "cmd": "viewers" }), Duration::from_secs(5))?;
+        Ok(r["viewers"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default())
     }
 
     pub fn pair_host(&self) -> Result<(String, u64)> {

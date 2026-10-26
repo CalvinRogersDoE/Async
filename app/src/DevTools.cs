@@ -252,6 +252,29 @@ static class DevTools
         return !share.Active && share.LastReturn is > 0.2f and < 0.4f ? 0 : 1;
     }
 
+    /// <summary>
+    /// <c>--input-receive-test SECONDS</c>: listens for the input service like the app does, but in
+    /// dry run, so each move, click and key is printed to stderr instead of reaching this PC.
+    /// Point <c>--mouse-test 127.0.0.1 24850</c> (or another computer's sender) at it.
+    /// </summary>
+    public static int InputReceiveTest(int seconds)
+    {
+        Environment.SetEnvironmentVariable("ASYNC_INPUT_DRY_RUN", "1");
+        using var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false };
+        form.Show();
+        Console.Error.WriteLine($"virtual desktop {SystemInformation.VirtualScreen}; monitors {string.Join(", ", Screen.AllScreens.Select(s => $"{s.DeviceName} {s.Bounds}"))}");
+        using var input = new InputReceive(form);
+        bool was = false;
+        var until = DateTime.Now.AddSeconds(seconds);
+        while (DateTime.Now < until)
+        {
+            Application.DoEvents();
+            Thread.Sleep(10);
+            if (input.Active != was) Console.Error.WriteLine((was = input.Active) ? "active: this PC's edges paused" : "inactive: this PC's edges back on");
+        }
+        return 0;
+    }
+
     // ---------- icon ----------
 
     /// <summary>Writes a multi-size .ico (PNG-compressed entries) from the runtime-drawn icon.</summary>

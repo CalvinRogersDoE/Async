@@ -113,8 +113,14 @@ While you're connected, its own screen shows the lock screen; that's how Remote 
 the portal open, push the side of the screen to slide to the PC's next screen, and push out the bottom
 to come back.
 
-Punching from a Mac or Linux computer into another Mac or Linux computer isn't there yet; Windows PCs
-work now.
+Into a Mac or Linux computer works the same way: enter its sign-in under its name (a Mac: the name and
+password you log into it with; Linux with x11vnc: nothing).
+
+To make an edge **extend** instead (the pointer and keyboard move over to that computer), pick *Move the
+pointer over to it (extend)* under the edge's computer. A Mac asks once to let **async-desktop** use
+**Accessibility**, both to send its pointer over and to receive one. Drag files to an extending edge and
+they go along; drop files onto a portal and they go to that computer; drag a file to the bottom edge
+inside a portal and it comes back. The receiving computer asks where to put them.
 
 ### Let the Windows PC punch into this computer
 

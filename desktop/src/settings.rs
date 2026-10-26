@@ -348,6 +348,17 @@ impl SettingsApp {
                     col = col.lerp_to_gamma(Color32::WHITE, 0.35);
                 }
                 painter.rect_filled(bar, CornerRadius::same(3), col);
+                if device.is_some() && self.cfg.modes.get(&edge_key(&m.name, e)).is_some_and(|v| v == "mouse") {
+                    // Extend: an arrow pointing out through the edge.
+                    let c = bar.center();
+                    let a = 4.0;
+                    let tri = match e {
+                        Edge::Top => vec![Pos2::new(c.x, c.y - a), Pos2::new(c.x - a * 1.6, c.y + a), Pos2::new(c.x + a * 1.6, c.y + a)],
+                        Edge::Left => vec![Pos2::new(c.x - a, c.y), Pos2::new(c.x + a, c.y - a * 1.6), Pos2::new(c.x + a, c.y + a * 1.6)],
+                        _ => vec![Pos2::new(c.x + a, c.y), Pos2::new(c.x - a, c.y - a * 1.6), Pos2::new(c.x - a, c.y + a * 1.6)],
+                    };
+                    painter.add(egui::Shape::convex_polygon(tri, Color32::WHITE, Stroke::NONE));
+                }
                 if selected {
                     painter.rect_stroke(bar.expand(2.0), CornerRadius::same(4), Stroke::new(1.5_f32, Color32::WHITE), egui::StrokeKind::Outside);
                 }
@@ -390,8 +401,22 @@ impl SettingsApp {
                         }
                     });
                 });
+                if !current.is_empty() {
+                    // What going through does: show the other screen here, or carry on onto the other computer.
+                    let mut mouse = self.cfg.modes.get(&key).is_some_and(|v| v == "mouse");
+                    ui.horizontal(|ui| {
+                        ui.label("When the pointer goes through:");
+                        ui.radio_value(&mut mouse, false, "Show its screen here (portal)");
+                        ui.radio_value(&mut mouse, true, "Move the pointer over to it (extend)");
+                    });
+                    if mouse {
+                        self.cfg.modes.insert(key.clone(), "mouse".into());
+                    } else {
+                        self.cfg.modes.remove(&key);
+                    }
+                }
             }
-            None => note(ui, "Click the top or a side of a screen to choose which computer pushing through it opens. The bottom is always the way back. Edges where two screens meet aren't shown: the mouse just crosses over there."),
+            None => note(ui, "Click the top or a side of a screen to choose which computer pushing through it opens, and whether its screen shows here (portal) or your pointer moves over to it (extend, marked with an arrow). The bottom is always the way back. Edges where two screens meet aren't shown: the mouse just crosses over there."),
         }
     }
 

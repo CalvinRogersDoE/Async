@@ -3,7 +3,7 @@
 //! motion on Linux, a CoreGraphics event tap's deltas on macOS), which is what makes "pushing
 //! through" detectable. Edges where the mouse simply crosses onto another monitor never count.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -22,6 +22,12 @@ pub enum Push {
 
 /// Milliseconds on [`clock`] until which pushes are ignored (e.g. while an animation plays).
 pub type Cooldown = Arc<AtomicU64>;
+
+/// The pointer is over on another computer (mouse mode): edges here do nothing.
+pub static PAUSED: AtomicBool = AtomicBool::new(false);
+/// Files are being dragged onto a drop strip: a push may go through with the button held, so the
+/// drag carries on over to the other computer.
+pub static FILE_DRAG: AtomicBool = AtomicBool::new(false);
 
 static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
@@ -66,8 +72,7 @@ impl Tracker {
         if self.debug {
             eprintln!("motion dx={dx} dy={dy} at {x},{y} buttons={buttons}");
         }
-        // Dragging a window against the edge is the window manager's business, not a punch.
-        if now < self.cooldown.load(Ordering::Relaxed) || buttons {
+        if now < self.cooldown.load(Ordering::Relaxed) || PAUSED.load(Ordering::Relaxed) {
             self.pushed = 0;
             return None;
         }
@@ -87,9 +92,16 @@ impl Tracker {
             return None;
         }
 
+        // Dragging a window against the edge is the window manager's business, not a punch; a file
+        // drag reaching a mouse-mode edge carries on over to the other computer.
+        let mouse = edge.is_some_and(|e| self.cfg.lock().unwrap().is_mouse_edge(&m.name, e));
+        if buttons && !(mouse && FILE_DRAG.load(Ordering::Relaxed)) {
+            self.pushed = 0;
+            return None;
+        }
         let (distance, gap, hold) = {
             let c = self.cfg.lock().unwrap();
-            (c.push_distance.max(1), c.push_gap_ms, c.push_hold_ms)
+            if mouse { (c.mouse_push_distance.max(1), c.push_gap_ms, 0) } else { (c.push_distance.max(1), c.push_gap_ms, c.push_hold_ms) }
         };
         if edge.is_none() || edge != self.push_edge || now - self.last_push > gap {
             self.pushed = 0;

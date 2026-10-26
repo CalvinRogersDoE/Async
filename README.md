@@ -26,14 +26,15 @@ Hamachi…) and no ports to open on your router.
 - **Portal or extend, per edge:** an edge can open a portal (the other computer's screen shows here), or
   extend onto the other computer: the pointer and keyboard simply move over to it, like a monitor beside
   yours, and come back when you move back out. Text you copy comes along.
-- **Send files and folders:** drop them onto a portal, or drag them across an extending edge. The other
-  computer asks where they should go (starting at the folder you picked last time).
+- **Send files and folders:** drop them onto a portal, drag them out through the bottom of a portal back
+  to your own computer, or drag them across an extending edge. The other computer asks where they should
+  go (starting at the folder you picked last time).
 - **Deliberate pushes only:** resting at the edge, flicking past it, dragging a window to the top, or moving
   the camera in a game never triggers it. How hard and how long you push are adjustable.
 - **Edge glow:** the edge lights up as you push, so you can feel the portal about to open.
 - **Lands where you punched:** the other computer's cursor appears right under the spot you pushed through.
-- **Windows, macOS and Linux:** punch out of any of them into a Windows PC, and into any of them from a
-  Windows PC.
+- **Windows, macOS and Linux, every direction:** portals, extending and files work from any of them into
+  any other.
 - **Multi-screen PCs:** punching into a PC with several screens shows one of them; slide to the next by
   pushing the side of the screen (Mac and Linux), and pick which screen each edge opens.
 - **Pair with a code:** one PC shows `ABCD-EFGH`, you type it on the other, done.
@@ -153,9 +154,8 @@ Good to know:
   and there's nothing to set up on your router.
 - When you punch into a Windows PC, its own screen shows the lock screen while you're in. Its programs
   keep running.
-- From a Mac or Linux computer you can punch into Windows PCs for now. Into Macs and Linux computers,
-  punch from a Windows PC. Extending and sending files go from a Windows PC to a Mac or Linux computer
-  for now.
+- To get a file out of a portal, drag it to the very bottom edge of the screen inside the portal and let
+  go there: it comes back to the computer you're looking from, which asks where to put it.
 - Stuck? The [full guide](docs/hosting.md) has more detail and a troubleshooting table.
 
 ## Roadmap
@@ -167,10 +167,10 @@ Good to know:
 - [x] The edge glows as you push; the cursor lands where you punched through
 - [x] Map edges to computers (top → desktop, right → laptop…)
 - [x] Punching *out* of macOS and Linux (into Windows PCs)
-- [x] Extend mode (the pointer and keyboard move over) and sending files, Windows to Mac and Linux
-- [ ] Extend and send files from Mac and Linux, and into Windows
+- [x] Extend mode (the pointer and keyboard move over) and sending files, every direction
+- [x] From macOS and Linux into other Macs and Linux computers
 - [ ] Drop files exactly where the pointer is on the other computer
-- [ ] From macOS and Linux into other Macs and Linux computers; the edge glow on macOS and Linux
+- [ ] The edge glow on macOS and Linux
 - [ ] Wayland on Linux
 - [ ] Async's own screen streaming: one format on every system, and Windows Home as a host
 - [ ] Terminal mode: punch into a Linux or macOS shell

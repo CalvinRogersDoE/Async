@@ -20,6 +20,7 @@ sealed class AsyncApp : ApplicationContext
     readonly MouseShare share;
     readonly DragStrips strips;
     readonly FileReceive receive;
+    readonly InputReceive input;
     readonly System.Windows.Forms.Timer viewerPoll = new() { Interval = 2000 };
     string[] viewers = [];
     SoundPlayer soundIn, soundOut;
@@ -42,7 +43,8 @@ sealed class AsyncApp : ApplicationContext
         edges.Hotkey += OnHotkey;
         edges.Pushing += OnPushing;
         share = new MouseShare(cfg, core, portal);
-        edges.Paused = () => share.Active;
+        // Edges do nothing while the pointer is over on another computer, or another computer's is here.
+        edges.Paused = () => share.Active || input!.Active;
         share.Returned += _ => edges.Cooldown(600);
         strips = new DragStrips(cfg);
         edges.AllowHeld = (s, e) => strips.Files != null && cfg.IsMouseEdge(s.DeviceName, e);
@@ -53,6 +55,7 @@ sealed class AsyncApp : ApplicationContext
         viewerPoll.Tick += async (_, _) => { try { viewers = await core.Viewers(); } catch { viewers = []; } };
         viewerPoll.Start();
         receive = new FileReceive(cfg, portal, text => portal.BeginInvoke(() => tray!.ShowBalloonTip(4000, "Async", text, ToolTipIcon.Info)));
+        input = new InputReceive(portal);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Punch in here", null, (_, _) => OnHotkey());
@@ -358,6 +361,7 @@ sealed class AsyncApp : ApplicationContext
         strips.Dispose();
         viewerPoll.Dispose();
         receive.Dispose();
+        input.Dispose();
         portal.Disconnect();
         core.Dispose();
         edges.Dispose();
