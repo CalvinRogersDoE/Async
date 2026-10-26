@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 
@@ -208,6 +209,47 @@ static class DevTools
         shot?.Save(path, ImageFormat.Png);
         Console.Error.WriteLine(error ?? $"{view.Updates} updates from {view.RemoteName} ({view.Updates / seconds:0.0} a second)");
         return error == null && view.Updates >= updates ? 0 : 1;
+    }
+
+    // ---------- mouse mode check ----------
+
+    /// <summary>
+    /// <c>--mouse-test HOST PORT</c>: hands the pointer to an input service (async-sharetest prints
+    /// what it receives), feeds in moves, clicks, a wheel turn and keys without touching this PC's
+    /// cursor, then pushes back out through the edge it went in by and reports where it came back.
+    /// </summary>
+    public static int MouseTest(string host, int port)
+    {
+        using var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false };
+        form.Show();
+        var share = new MouseShare(new Settings(), null!, form);
+        var s = Screen.PrimaryScreen!;
+        var b = s.Bounds;
+        Task.Run(() => share.StartAt(host, port, "test", s, Edge.Right, new Point(b.Right - 1, b.Top + (int)(b.Height * 0.3)), live: false)).GetAwaiter().GetResult();
+        void Pump(int ms) { for (int i = 0; i < ms / 5; i++) { Application.DoEvents(); Thread.Sleep(5); } }
+        IntPtr buf = Marshal.AllocHGlobal(64);
+        void Mouse(int msg, int dx = 0, int dy = 0, int data = 0)
+        {
+            Marshal.StructureToPtr(new Native.MSLLHOOKSTRUCT { pt = new Native.POINT { X = share.Park.X + dx, Y = share.Park.Y + dy }, mouseData = (uint)(data << 16) }, buf, false);
+            share.OnMouse(0, msg, buf);
+        }
+        void Key(int vk, int scan, bool down, bool extended = false)
+        {
+            Marshal.StructureToPtr(new Native.KBDLLHOOKSTRUCT { vkCode = vk, scanCode = scan, flags = (down ? 0 : 0x80) | (extended ? 1 : 0) }, buf, false);
+            share.OnKey(0, down ? 0x100 : 0x101, buf);
+        }
+        for (int i = 0; i < 10; i++) Mouse(0x200, 5, 2);
+        Pump(100);
+        Mouse(0x201); Mouse(0x202);
+        Mouse(0x20A, data: 120);
+        Key(0x11, 0x1D, true); Key(0x43, 0x2E, true); Key(0x43, 0x2E, false); Key(0x11, 0x1D, false); // Ctrl+C
+        Key(0x27, 0x4D, true, extended: true); Key(0x27, 0x4D, false, extended: true);                  // Right arrow
+        Pump(200);
+        for (int i = 0; i < 40 && share.Active; i++) { Mouse(0x200, -30, 0); Pump(20); }
+        Pump(300);
+        Marshal.FreeHGlobal(buf);
+        Console.Error.WriteLine(share.Active ? "pointer never came back" : $"pointer came back at {share.LastReturn:0.000} along the edge");
+        return !share.Active && share.LastReturn is > 0.2f and < 0.4f ? 0 : 1;
     }
 
     // ---------- icon ----------

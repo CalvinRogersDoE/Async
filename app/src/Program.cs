@@ -14,6 +14,11 @@ static class Program
             return;
         }
 
+        if (args.Length >= 3 && args[0] == "--mouse-test")
+        {
+            Environment.Exit(DevTools.MouseTest(args[1], int.Parse(args[2])));
+        }
+
         if (args.Length >= 4 && args[0] == "--vnc-snapshot")
         {
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);

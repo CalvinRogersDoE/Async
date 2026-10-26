@@ -52,7 +52,8 @@ sealed class SettingsForm : Form
         edgeMap = new EdgeMap(cfg.EdgeDevices != null
             ? new Dictionary<string, string>(cfg.EdgeDevices)
             : Screen.AllScreens.Where(s => cfg.IsConfigured && EdgeWatcher.IsFree(s.Bounds, Edge.Top))
-                .ToDictionary(s => Settings.EdgeKey(s.DeviceName, Edge.Top), _ => cfg.TargetDevice))
+                .ToDictionary(s => Settings.EdgeKey(s.DeviceName, Edge.Top), _ => cfg.TargetDevice),
+            new Dictionary<string, string>(cfg.EdgeModes))
         { BackColor = Card, Font = new Font("Segoe UI", 9f), Dock = DockStyle.Top, Height = 260 };
 
         Text = "Async settings";
@@ -325,6 +326,7 @@ sealed class SettingsForm : Form
         bool connectionChanged = deviceUsers.Any(kv => kv.Value.Text.Trim() != cfg.UserFor(kv.Key)) || targetDevice != cfg.TargetDevice;
         cfg.TargetDevice = targetDevice;
         cfg.EdgeDevices = new Dictionary<string, string>(edgeMap.Mapping);
+        cfg.EdgeModes = new Dictionary<string, string>(edgeMap.Modes);
         foreach (var (id, box) in deviceUsers) cfg.DeviceUsers[id] = box.Text.Trim();
         cfg.Hotkey = hotkey.Text.Trim();
         cfg.PushDistance = strength.Value;
@@ -415,7 +417,8 @@ sealed class SettingsForm : Form
     {
         try
         {
-            var (os, services, vncPassword) = await core.Describe(d.Id);
+            var (os, allServices, vncPassword) = await core.Describe(d.Id);
+            var services = allServices.Where(x => x is "rdp" or "vnc").ToArray(); // screen sharing only
             if (IsDisposed) return;
             string osName = os switch { "windows" => "Windows", "macos" => "macOS", "linux" => "Linux", _ => os };
             detail.Text = services.Length == 0 ? $"{osName} · screen sharing is off"

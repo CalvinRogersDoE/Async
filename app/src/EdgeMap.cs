@@ -25,10 +25,13 @@ sealed class EdgeMap : Control
 
     /// <summary>Edge key (<see cref="Settings.EdgeKey"/>) → device id.</summary>
     public Dictionary<string, string> Mapping { get; }
+    /// <summary>Edge key → "portal" or "mouse" (see <see cref="Settings.EdgeModes"/>).</summary>
+    public Dictionary<string, string> Modes { get; }
 
-    public EdgeMap(Dictionary<string, string> mapping)
+    public EdgeMap(Dictionary<string, string> mapping, Dictionary<string, string> modes)
     {
         Mapping = mapping;
+        Modes = modes;
         // Left to right, then top to bottom, numbered the way they sit on the desk.
         screens = Screen.AllScreens.OrderBy(s => s.Bounds.Left).ThenBy(s => s.Bounds.Top).ToArray();
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
@@ -51,6 +54,8 @@ sealed class EdgeMap : Control
     string NameOf(string id) => devices.FirstOrDefault(d => d.Id == id)?.Name ?? "a removed device";
 
     string? DeviceAt(Screen s, Edge e) => Mapping.TryGetValue(Settings.EdgeKey(s.DeviceName, e), out var d) && d != "" ? d : null;
+
+    bool IsMouse(Screen s, Edge e) => Modes.TryGetValue(Settings.EdgeKey(s.DeviceName, e), out var m) && m == "mouse";
 
     static string Number(Screen s) => new string(s.DeviceName.Where(char.IsDigit).ToArray()) is { Length: > 0 } n ? n : "?";
 
@@ -128,6 +133,20 @@ sealed class EdgeMap : Control
                 using var brush = new SolidBrush(col);
                 using var path = Rounded(bar, Thick / 2f);
                 g.FillPath(brush, path);
+                if (device != null && IsMouse(s, e))
+                {
+                    // Mouse mode: an arrow pointing out through the edge.
+                    var c = new PointF(bar.Left + bar.Width / 2, bar.Top + bar.Height / 2);
+                    float a = 4;
+                    PointF[] tri = e switch
+                    {
+                        Edge.Top => [new(c.X, c.Y - a), new(c.X - a * 1.6f, c.Y + a), new(c.X + a * 1.6f, c.Y + a)],
+                        Edge.Left => [new(c.X - a, c.Y), new(c.X + a, c.Y - a * 1.6f), new(c.X + a, c.Y + a * 1.6f)],
+                        _ => [new(c.X + a, c.Y), new(c.X - a, c.Y - a * 1.6f), new(c.X - a, c.Y + a * 1.6f)],
+                    };
+                    using var arrow = new SolidBrush(Color.White);
+                    g.FillPolygon(arrow, tri);
+                }
                 if (device == null)
                 {
                     // Dashed look for "nothing here yet".
@@ -177,7 +196,8 @@ sealed class EdgeMap : Control
             if (h is { } x)
             {
                 string? d = DeviceAt(x.Item1, x.Item2);
-                tip.SetToolTip(this, $"Screen {Number(x.Item1)}, {EdgeName(x.Item2)} edge: {(d != null ? $"opens {NameOf(d)}" : "does nothing")}. Click to change.");
+                string does = d == null ? "does nothing" : IsMouse(x.Item1, x.Item2) ? $"moves the pointer over to {NameOf(d)}" : $"opens {NameOf(d)}";
+                tip.SetToolTip(this, $"Screen {Number(x.Item1)}, {EdgeName(x.Item2)} edge: {does}. Click to change.");
             }
             else tip.SetToolTip(this, "");
         }
@@ -212,6 +232,19 @@ sealed class EdgeMap : Control
         none.Click += (_, _) => { Mapping.Remove(key); Invalidate(); };
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(none);
+        if (current != null)
+        {
+            // What pushing through does: show the other screen here, or carry on onto the other computer.
+            bool mouse = IsMouse(s, edge);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(new ToolStripLabel("When the pointer goes through:") { ForeColor = SystemColors.GrayText });
+            var portal = new ToolStripMenuItem("Show its screen here (portal)") { Checked = !mouse };
+            portal.Click += (_, _) => { Modes.Remove(key); Invalidate(); };
+            var over = new ToolStripMenuItem("Move the pointer over to it (extend)") { Checked = mouse };
+            over.Click += (_, _) => { Modes[key] = "mouse"; Invalidate(); };
+            menu.Items.Add(portal);
+            menu.Items.Add(over);
+        }
         menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
         menu.Show(this, e.Location);
     }

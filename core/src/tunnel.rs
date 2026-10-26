@@ -5,6 +5,10 @@
 //! 127.0.0.1 because it looks like "this computer"; elsewhere 127.0.0.1). Each TCP connection to
 //! it becomes one QUIC stream to the other device, which connects it to its own local service.
 //! The first byte of every stream says which service; byte 0 asks the device what it offers.
+//!
+//! Besides screen sharing, Async's own apps offer two services on fixed local ports while they
+//! run: `input` (the mouse and keyboard of a paired computer, when the pointer crosses over to
+//! this one) and `files` (files dropped onto this computer from a paired one).
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
@@ -31,13 +35,21 @@ pub enum Service {
     Info = 0,
     RemoteDesktop = 1,
     Vnc = 2,
+    Input = 3,
+    Files = 4,
 }
+
+/// Where Async's own app listens for the `input` and `files` services (loopback only).
+pub const INPUT_PORT: u16 = 24850;
+pub const FILES_PORT: u16 = 24851;
 
 impl Service {
     pub fn parse(name: &str) -> Result<Self> {
         match name {
             "rdp" => Ok(Self::RemoteDesktop),
             "vnc" => Ok(Self::Vnc),
+            "input" => Ok(Self::Input),
+            "files" => Ok(Self::Files),
             _ => bail!("unknown service {name:?}"),
         }
     }
@@ -47,6 +59,8 @@ impl Service {
             Self::Info => "info",
             Self::RemoteDesktop => "rdp",
             Self::Vnc => "vnc",
+            Self::Input => "input",
+            Self::Files => "files",
         }
     }
 
@@ -55,6 +69,8 @@ impl Service {
             0 => Some(Self::Info),
             1 => Some(Self::RemoteDesktop),
             2 => Some(Self::Vnc),
+            3 => Some(Self::Input),
+            4 => Some(Self::Files),
             _ => None,
         }
     }
@@ -104,6 +120,8 @@ impl HostConfig {
         match service {
             Service::RemoteDesktop => self.rdp,
             Service::Vnc => self.vnc,
+            Service::Input => self.allow_incoming.then(|| SocketAddr::from(([127, 0, 0, 1], INPUT_PORT))),
+            Service::Files => self.allow_incoming.then(|| SocketAddr::from(([127, 0, 0, 1], FILES_PORT))),
             Service::Info => None,
         }
     }
@@ -111,7 +129,7 @@ impl HostConfig {
     /// Services that are configured and actually listening right now.
     pub async fn info(&self) -> DeviceInfo {
         let mut services = Vec::new();
-        for s in [Service::RemoteDesktop, Service::Vnc] {
+        for s in [Service::RemoteDesktop, Service::Vnc, Service::Input, Service::Files] {
             if let Some(addr) = self.target(s) {
                 if TcpStream::connect(addr).await.is_ok() {
                     services.push(s.name().to_string());

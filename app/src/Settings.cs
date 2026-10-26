@@ -14,6 +14,14 @@ sealed class Settings
     /// set in Settings, which means: every free top edge opens <see cref="TargetDevice"/>.
     /// </summary>
     public Dictionary<string, string>? EdgeDevices { get; set; }
+    /// <summary>
+    /// What each mapped edge does, keyed like <see cref="EdgeDevices"/>: "portal" (the other
+    /// computer's screen opens here) or "mouse" (the pointer and keyboard move over to it, as if it
+    /// were another monitor). Missing means portal.
+    /// </summary>
+    public Dictionary<string, string> EdgeModes { get; set; } = new();
+    /// <summary>How hard to push through a mouse-mode edge; lighter than a portal, like a monitor with a little resistance.</summary>
+    public int MousePushDistance { get; set; } = 120;
     /// <summary>The Windows account to sign in as on each paired device, by device id.</summary>
     public Dictionary<string, string> DeviceUsers { get; set; } = new();
 
@@ -59,6 +67,9 @@ sealed class Settings
         if (EdgeDevices == null) return e == Edge.Top && IsConfigured ? TargetDevice : null;
         return EdgeDevices.TryGetValue(EdgeKey(screen, e), out var d) && d != "" ? d : null;
     }
+
+    public bool IsMouseEdge(string screen, Edge e) =>
+        e != Edge.Bottom && EdgeModes.TryGetValue(EdgeKey(screen, e), out var m) && m == "mouse";
 
     /// <summary>Windows Credential Manager entry holding a device's password.</summary>
     public static string CredentialTarget(string device) => $"Async:{device}";

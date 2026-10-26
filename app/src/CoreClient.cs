@@ -96,6 +96,13 @@ sealed class CoreClient : IDisposable
         return ((string)r["host"]!, (int)r["port"]!, (string)r["service"]!);
     }
 
+    /// <summary>A local port leading to one of Async's own services on the device: <c>input</c> or <c>files</c>.</summary>
+    public async Task<(string Host, int Port, string Service)> OpenService(string deviceId, string service)
+    {
+        var r = await Request("tunnel", new() { ["peer"] = deviceId, ["service"] = service });
+        return ((string)r["host"]!, (int)r["port"]!, (string)r["service"]!);
+    }
+
     /// <summary>
     /// What the device is (its OS), which screen sharing it has turned on, and the password of
     /// screen sharing Async set up on it itself (Linux), which needs no typing.

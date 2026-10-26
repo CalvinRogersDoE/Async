@@ -17,6 +17,7 @@ sealed class AsyncApp : ApplicationContext
     readonly EdgeGlow glow = new();
     readonly PortalForm portal;
     readonly CoreClient core;
+    readonly MouseShare share;
     SoundPlayer soundIn, soundOut;
     readonly double slowmo = double.TryParse(Environment.GetEnvironmentVariable("ASYNC_SLOWMO"), out var f) && f > 0 ? f : 1;
     readonly ToolStripMenuItem startup;
@@ -36,6 +37,9 @@ sealed class AsyncApp : ApplicationContext
         edges.Pushed += OnPush;
         edges.Hotkey += OnHotkey;
         edges.Pushing += OnPushing;
+        share = new MouseShare(cfg, core, portal);
+        edges.Paused = () => share.Active;
+        share.Returned += _ => edges.Cooldown(600);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Punch in here", null, (_, _) => OnHotkey());
@@ -99,12 +103,31 @@ sealed class AsyncApp : ApplicationContext
         glow.Clear();
         if (busy) return;
         var (act, device) = Decide(s, e);
+        if (act == Act.Open && !portal.Visible && cfg.IsMouseEdge(s.DeviceName, e))
+        {
+            Run(CrossOver(device!, s, e, p));
+            return;
+        }
         if (act == Act.Close) Run(Close(e, p));
         else if (act == Act.Open) Run(portal.Visible ? Switch(s, e, p, device!) : Open(s, e, p, device!));
     }
 
+    /// <summary>Mouse mode: the pointer and keyboard go over to the other computer.</summary>
+    async Task CrossOver(string device, Screen s, Edge e, Point p)
+    {
+        try { await share.Start(device, s, e, p); }
+        catch (Exception ex)
+        {
+            Log.Write($"Mouse mode couldn't start: {ex.Message}");
+            string name = core.Devices.FirstOrDefault(d => d.Id == device)?.Name ?? "that computer";
+            tray.ShowBalloonTip(5000, "Async", $"Couldn't move the pointer to {name}. Is Async running there, and up to date?", ToolTipIcon.Warning);
+            edges.Cooldown(1500);
+        }
+    }
+
     void OnHotkey()
     {
+        if (share.Active) { share.Recall(); return; }
         if (busy) return;
         var p = Cursor.Position;
         if (portal.Visible) Run(Close(entry, p));
@@ -303,6 +326,7 @@ sealed class AsyncApp : ApplicationContext
     protected override void ExitThreadCore()
     {
         tray.Visible = false;
+        share.Dispose();
         portal.Disconnect();
         core.Dispose();
         edges.Dispose();

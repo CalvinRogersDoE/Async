@@ -17,6 +17,7 @@ mod monitors;
 mod portal;
 mod rdp;
 mod settings;
+mod share;
 mod tray;
 
 use std::os::unix::net::{UnixListener, UnixStream};

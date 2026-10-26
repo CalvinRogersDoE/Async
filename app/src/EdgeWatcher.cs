@@ -32,6 +32,8 @@ sealed class EdgeWatcher : NativeWindow, IDisposable
     public event Action? Hotkey;
     /// <summary>A push is building: screen, edge, cursor, and 0–1 progress toward firing.</summary>
     public event Action<Screen, Edge, Point, float>? Pushing;
+    /// <summary>True while edges should do nothing (the pointer is over on another computer).</summary>
+    public Func<bool>? Paused;
 
     readonly Settings cfg;
     readonly int headerSize = Marshal.SizeOf<Native.RAWINPUTHEADER>();
@@ -92,7 +94,7 @@ sealed class EdgeWatcher : NativeWindow, IDisposable
         Native.GetCursorPos(out var c);
         var p = new Point(c.X, c.Y);
         if (Debug) Log.Write($"raw dx={dx} dy={dy} cursor={p} buttons={ButtonsDown()} captured={CursorCaptured()} cooldown={now < cooldownUntil}");
-        if (now < cooldownUntil || ButtonsDown() || CursorCaptured()) { pushed = 0; return; }
+        if (now < cooldownUntil || Paused?.Invoke() == true || ButtonsDown() || CursorCaptured()) { pushed = 0; return; }
 
         var screen = Screen.FromPoint(p);
         var b = screen.Bounds;
@@ -117,10 +119,13 @@ sealed class EdgeWatcher : NativeWindow, IDisposable
         if (edge is not { } e) return;
 
         pushed += amount;
+        // Mouse-mode edges need only a light push, with no minimum duration.
+        bool mouse = cfg.IsMouseEdge(screen.DeviceName, e);
+        int distance = mouse ? cfg.MousePushDistance : cfg.PushDistance, hold = mouse ? 0 : cfg.PushHoldMs;
         // How close the push is to firing: whichever of distance and duration is further behind.
-        float progress = Math.Min((float)pushed / cfg.PushDistance, cfg.PushHoldMs <= 0 ? 1 : (float)(now - pushStart) / cfg.PushHoldMs);
+        float progress = Math.Min((float)pushed / distance, hold <= 0 ? 1 : (float)(now - pushStart) / hold);
         Pushing?.Invoke(screen, e, p, Math.Clamp(progress, 0, 1));
-        if (pushed < cfg.PushDistance || now - pushStart < cfg.PushHoldMs) return;
+        if (pushed < distance || now - pushStart < hold) return;
 
         pushed = 0;
         Cooldown(700);

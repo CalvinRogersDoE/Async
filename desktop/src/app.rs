@@ -92,6 +92,10 @@ impl App {
         edges::spawn(cfg.clone(), cooldown.clone(), move |push| {
             let _ = p.send_event(AppEvent::Push(push));
         })?;
+        // Mouse mode: another computer's pointer can cross over to this one.
+        if let Err(e) = crate::share::spawn(cooldown.clone()) {
+            eprintln!("mouse mode unavailable (port {} taken?): {e:#}", crate::share::PORT);
+        }
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
         Ok(Self {
             cfg,

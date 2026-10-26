@@ -26,13 +26,13 @@ anyhow = "1"
 smallvec = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-x11rb = { version = "0.13", features = ["xinput", "randr", "shape"] }
+x11rb = { version = "0.13", features = ["xinput", "randr", "shape", "xtest"] }
 ksni = { version = "0.3", features = ["blocking"] }
 keyring = { version = "3", features = ["async-secret-service", "tokio", "crypto-rust"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
-core-graphics = "0.24"
+core-graphics = { version = "0.24", features = ["highsierra"] }
 core-foundation = "0.10"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSGraphics", "objc2-quartz-core"] }
