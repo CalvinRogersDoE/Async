@@ -478,7 +478,7 @@ impl App {
         };
         let size = self.portal.as_ref().and_then(|p| p.monitor.as_ref()).map(|m| m.pixels()).map(|(w, h)| (w as u16, h as u16)).unwrap_or((1920, 1080));
         let proxy = self.proxy.clone();
-        match Session::start(self.rt.handle(), &host, port, &user, &password, size, &self.screens, move |out| {
+        match rdp::Session::start(self.rt.handle(), &host, port, &user, &password, size, &self.screens, move |out| {
             let _ = proxy.send_event(AppEvent::Rdp { epoch, out });
         }) {
             Ok(s) => self.session = Some(Session::Rdp(s)),
