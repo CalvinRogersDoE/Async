@@ -161,6 +161,26 @@ impl HostConfig {
 pub struct TunnelHost {
     pub store: Arc<Store>,
     pub config: HostConfig,
+    pub viewers: Viewers,
+}
+
+/// Which paired devices are looking at this computer's screen right now (open Remote Desktop or VNC
+/// streams per device), so files dragged out of the portal can go back to the one watching.
+#[derive(Debug, Clone, Default)]
+pub struct Viewers(Arc<std::sync::Mutex<HashMap<EndpointId, usize>>>);
+
+impl Viewers {
+    fn add(&self, who: EndpointId, by: isize) {
+        let mut map = self.0.lock().unwrap();
+        let n = map.entry(who).or_default();
+        *n = n.saturating_add_signed(by);
+        if *n == 0 {
+            map.remove(&who);
+        }
+    }
+    pub fn list(&self) -> Vec<EndpointId> {
+        self.0.lock().unwrap().keys().copied().collect()
+    }
 }
 
 impl ProtocolHandler for TunnelHost {
@@ -174,6 +194,7 @@ impl ProtocolHandler for TunnelHost {
         eprintln!("tunnel opened by {them}");
         while let Ok((mut send, mut recv)) = conn.accept_bi().await {
             let config = self.config.clone();
+            let viewers = self.viewers.clone();
             tokio::spawn(async move {
                 let mut kind = [0u8; 1];
                 if recv.read_exact(&mut kind).await.is_err() {
@@ -187,8 +208,15 @@ impl ProtocolHandler for TunnelHost {
                     }
                     Some(service) => match config.target(service) {
                         Some(target) => {
+                            let screen = matches!(service, Service::RemoteDesktop | Service::Vnc);
+                            if screen {
+                                viewers.add(them, 1);
+                            }
                             if let Err(e) = pipe_to(target, send, recv).await {
                                 eprintln!("{} stream ended: {e:#}", service.name());
+                            }
+                            if screen {
+                                viewers.add(them, -1);
                             }
                         }
                         None => eprintln!("{} isn't offered on this device", service.name()),

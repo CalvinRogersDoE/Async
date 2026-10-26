@@ -15,6 +15,7 @@
 //! | `describe`   | `peer`          | `name`, `os`, `services` (`"rdp"`, `"vnc"`) |
 //! | `tunnel`     | `peer`, `service` (`"rdp"`/`"vnc"`, optional) | `host`, `port`, `service` |
 //! | `probe`      | `peer`          | `rtt_ms`, `direct`                       |
+//! | `viewers`    |                 | `viewers: [id]` (devices showing this screen in a portal now) |
 //!
 //! Every reply has `ok`; failures carry `error` (a sentence fit to show the user).
 //! When stdin closes (the app exited), async-core exits too. A socket connection closing only
@@ -156,6 +157,7 @@ async fn handle(core: &Arc<Core>, req: &Value, out: &mpsc::UnboundedSender<Value
             let (rtt, direct) = core.tunnels.probe(peer_field()?).await?;
             json!({ "rtt_ms": rtt, "direct": direct })
         }
+        "viewers" => json!({ "viewers": core.viewers.list().iter().map(|id| id.to_string()).collect::<Vec<_>>() }),
         other => anyhow::bail!("unknown command {other:?}"),
     })
 }

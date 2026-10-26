@@ -22,6 +22,8 @@ sealed class Settings
     public Dictionary<string, string> EdgeModes { get; set; } = new();
     /// <summary>How hard to push through a mouse-mode edge; lighter than a portal, like a monitor with a little resistance.</summary>
     public int MousePushDistance { get; set; } = 120;
+    /// <summary>Where files from another computer went last time (the folder picker starts there).</summary>
+    public string LastDropFolder { get; set; } = "";
     /// <summary>The Windows account to sign in as on each paired device, by device id.</summary>
     public Dictionary<string, string> DeviceUsers { get; set; } = new();
 

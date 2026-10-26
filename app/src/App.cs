@@ -19,6 +19,9 @@ sealed class AsyncApp : ApplicationContext
     readonly CoreClient core;
     readonly MouseShare share;
     readonly DragStrips strips;
+    readonly FileReceive receive;
+    readonly System.Windows.Forms.Timer viewerPoll = new() { Interval = 2000 };
+    string[] viewers = [];
     SoundPlayer soundIn, soundOut;
     readonly double slowmo = double.TryParse(Environment.GetEnvironmentVariable("ASYNC_SLOWMO"), out var f) && f > 0 ? f : 1;
     readonly ToolStripMenuItem startup;
@@ -44,6 +47,12 @@ sealed class AsyncApp : ApplicationContext
         strips = new DragStrips(cfg);
         edges.AllowHeld = (s, e) => strips.Files != null && cfg.IsMouseEdge(s.DeviceName, e);
         portal.FilesDropped += files => SendFiles(portal.Device, files);
+        // Files dragged out through the bottom of a portal someone has open onto this PC go back to them.
+        strips.Viewed = () => viewers.Length > 0;
+        strips.DroppedOut += files => { if (viewers.Length > 0) SendFiles(viewers[0], files); };
+        viewerPoll.Tick += async (_, _) => { try { viewers = await core.Viewers(); } catch { viewers = []; } };
+        viewerPoll.Start();
+        receive = new FileReceive(cfg, portal, text => portal.BeginInvoke(() => tray!.ShowBalloonTip(4000, "Async", text, ToolTipIcon.Info)));
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Punch in here", null, (_, _) => OnHotkey());
@@ -347,6 +356,8 @@ sealed class AsyncApp : ApplicationContext
         tray.Visible = false;
         share.Dispose();
         strips.Dispose();
+        viewerPoll.Dispose();
+        receive.Dispose();
         portal.Disconnect();
         core.Dispose();
         edges.Dispose();

@@ -30,12 +30,13 @@ use std::{path::PathBuf, sync::Arc};
 use anyhow::{Context, Result, bail};
 use iroh::{Endpoint, EndpointId, endpoint::presets, protocol::Router};
 
-use crate::{store::Store, tunnel::{HostConfig, Service, TunnelHost, Tunnels}};
+use crate::{store::Store, tunnel::{HostConfig, Service, TunnelHost, Tunnels, Viewers}};
 
 pub struct Core {
     pub router: Router,
     pub store: Arc<Store>,
     pub tunnels: Tunnels,
+    pub viewers: Viewers,
 }
 
 impl Core {
@@ -55,9 +56,10 @@ impl Core {
             .bind()
             .await
             .context("starting network endpoint")?;
-        let host = TunnelHost { store: store.clone(), config };
+        let viewers = Viewers::default();
+        let host = TunnelHost { store: store.clone(), config, viewers: viewers.clone() };
         let router = Router::builder(endpoint.clone()).accept(tunnel::ALPN, host).spawn();
-        Ok(Self { router, store, tunnels: Tunnels::new(endpoint) })
+        Ok(Self { router, store, tunnels: Tunnels::new(endpoint), viewers })
     }
 }
 

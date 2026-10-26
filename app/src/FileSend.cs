@@ -130,9 +130,11 @@ static class FileSend
 }
 
 /// <summary>
-/// Catches files dragged (in Explorer, on the desktop…) up to a mouse-mode edge. While a mouse
-/// button is held, a nearly invisible strip lies along each such edge; a file drag reaching it
-/// tells Async what's being dragged, so the drag can carry on over to the other computer.
+/// Catches files dragged (in Explorer, on the desktop…) up to an edge. While a mouse button is held,
+/// a nearly invisible strip lies along each mouse-mode edge; a file drag reaching it tells Async
+/// what's being dragged, so the drag can carry on over to the other computer. While another
+/// computer is showing this one in a portal, strips also lie along the bottom (the portal's way
+/// back): files dropped there go back to that computer.
 /// </summary>
 sealed class DragStrips : IDisposable
 {
@@ -142,6 +144,10 @@ sealed class DragStrips : IDisposable
 
     /// <summary>The files being dragged over a strip right now, or null.</summary>
     public string[]? Files { get; private set; }
+    /// <summary>Whether a paired computer is showing this one in a portal right now.</summary>
+    public Func<bool>? Viewed;
+    /// <summary>Files were dropped on the bottom edge while being viewed: send them to the viewer.</summary>
+    public event Action<string[]>? DroppedOut;
 
     public DragStrips(Settings cfg)
     {
@@ -159,19 +165,22 @@ sealed class DragStrips : IDisposable
             return;
         }
         if (strips.Count > 0) return;
+        bool viewed = Viewed?.Invoke() == true;
         foreach (var s in Screen.AllScreens)
-            foreach (var e in Edges.Mappable)
+            foreach (var e in Edges.All)
             {
-                if (!cfg.IsMouseEdge(s.DeviceName, e) || cfg.DeviceFor(s.DeviceName, e) == null || !EdgeWatcher.IsFree(s.Bounds, e)) continue;
+                bool outward = e == Edge.Bottom ? viewed : cfg.IsMouseEdge(s.DeviceName, e) && cfg.DeviceFor(s.DeviceName, e) != null;
+                if (!outward || !EdgeWatcher.IsFree(s.Bounds, e)) continue;
                 var b = s.Bounds;
                 const int t = 3;
                 var r = e switch
                 {
                     Edge.Top => new Rectangle(b.Left, b.Top, b.Width, t),
+                    Edge.Bottom => new Rectangle(b.Left, b.Bottom - t, b.Width, t),
                     Edge.Left => new Rectangle(b.Left, b.Top, t, b.Height),
                     _ => new Rectangle(b.Right - t, b.Top, t, b.Height),
                 };
-                var strip = new Strip(this) { Bounds = r };
+                var strip = new Strip(this, sendsBack: e == Edge.Bottom) { Bounds = r };
                 strip.Show();
                 strip.Bounds = r;
                 strips.Add(strip);
@@ -188,9 +197,11 @@ sealed class DragStrips : IDisposable
     sealed class Strip : Form
     {
         readonly DragStrips owner;
-        public Strip(DragStrips owner)
+        readonly bool sendsBack;
+        public Strip(DragStrips owner, bool sendsBack)
         {
             this.owner = owner;
+            this.sendsBack = sendsBack;
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
@@ -214,7 +225,13 @@ sealed class DragStrips : IDisposable
         }
         protected override void OnDragOver(DragEventArgs e) => e.Effect = owner.Files != null ? DragDropEffects.Copy : DragDropEffects.None;
         protected override void OnDragLeave(EventArgs e) { /* keep Files: leaving the strip is how the drag crosses over */ }
-        protected override void OnDragDrop(DragEventArgs e) { /* the drop Async causes itself once the pointer has crossed */ }
+        protected override void OnDragDrop(DragEventArgs e)
+        {
+            // On a mouse-mode edge this is the drop Async causes itself once the pointer has crossed.
+            // On the bottom edge of a screen someone is viewing, it sends the files back to them.
+            if (sendsBack && e.Data?.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
+                owner.DroppedOut?.Invoke(files);
+        }
     }
 
     public void Dispose()

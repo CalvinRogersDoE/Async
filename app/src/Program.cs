@@ -14,6 +14,17 @@ static class Program
             return;
         }
 
+        if (args.Length >= 2 && args[0] == "--receive-test")
+        {
+            // --receive-test SECONDS: listen for files (into ASYNC_TEST_DROP_FOLDER) for a while.
+            using var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false };
+            form.Show();
+            using var r = new FileReceive(new Settings(), form, Console.Error.WriteLine);
+            var until = DateTime.Now.AddSeconds(int.Parse(args[1]));
+            while (DateTime.Now < until) { Application.DoEvents(); Thread.Sleep(10); }
+            Environment.Exit(0);
+        }
+
         if (args.Length >= 4 && args[0] == "--files-test")
         {
             // --files-test HOST PORT PATH...: send files to a files service and print what happens.

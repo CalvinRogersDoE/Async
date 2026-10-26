@@ -121,6 +121,13 @@ sealed class CoreClient : IDisposable
         return ((int)r["rtt_ms"]!, (bool)r["direct"]!);
     }
 
+    /// <summary>Paired devices showing this computer in a portal right now.</summary>
+    public async Task<string[]> Viewers()
+    {
+        var r = await Request("viewers");
+        return r["viewers"]!.AsArray().Select(v => (string)v!).ToArray();
+    }
+
     async Task<JsonObject> Request(string cmd, JsonObject? fields = null)
     {
         var msg = fields ?? new JsonObject();
