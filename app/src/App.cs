@@ -18,6 +18,11 @@ sealed class AsyncApp : ApplicationContext
     readonly PortalForm portal;
     readonly CoreClient core;
     readonly MouseShare share;
+    /// <summary>
+    /// A hidden control that exists from the start, so background threads (mouse mode, files) always
+    /// have the UI thread to hand work to; the portal's own window is only made when it first opens.
+    /// </summary>
+    readonly Control ui = new();
     readonly DragStrips strips;
     readonly FileReceive receive;
     readonly InputReceive input;
@@ -42,7 +47,9 @@ sealed class AsyncApp : ApplicationContext
         edges.Pushed += OnPush;
         edges.Hotkey += OnHotkey;
         edges.Pushing += OnPushing;
-        share = new MouseShare(cfg, core, portal);
+        ui.CreateControl();
+        _ = ui.Handle;
+        share = new MouseShare(cfg, core, ui);
         // Edges do nothing while the pointer is over on another computer, or another computer's is here.
         edges.Paused = () => share.Active || input!.Active;
         share.Returned += _ => edges.Cooldown(600);
@@ -54,8 +61,8 @@ sealed class AsyncApp : ApplicationContext
         strips.DroppedOut += files => { if (viewers.Length > 0) SendFiles(viewers[0], files); };
         viewerPoll.Tick += async (_, _) => { try { viewers = await core.Viewers(); } catch { viewers = []; } };
         viewerPoll.Start();
-        receive = new FileReceive(cfg, portal, text => portal.BeginInvoke(() => tray!.ShowBalloonTip(4000, "Async", text, ToolTipIcon.Info)));
-        input = new InputReceive(portal);
+        receive = new FileReceive(cfg, ui, Tell);
+        input = new InputReceive(ui);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Punch in here", null, (_, _) => OnHotkey());
@@ -150,10 +157,17 @@ sealed class AsyncApp : ApplicationContext
         }
     }
 
+    /// <summary>A tray notification, from any thread.</summary>
+    void Tell(string text)
+    {
+        try { ui.BeginInvoke(() => tray.ShowBalloonTip(4000, "Async", text, ToolTipIcon.Info)); }
+        catch (Exception e) { Log.Write($"Couldn't show \"{text}\": {e.Message}"); }
+    }
+
     void SendFiles(string device, string[] files)
     {
         string name = core.Devices.FirstOrDefault(d => d.Id == device)?.Name ?? "the other computer";
-        Run(FileSend.Send(core, device, name, files, text => portal.BeginInvoke(() => tray.ShowBalloonTip(4000, "Async", text, ToolTipIcon.Info))));
+        Run(FileSend.Send(core, device, name, files, Tell));
     }
 
     void OnHotkey()

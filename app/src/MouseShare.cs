@@ -136,6 +136,13 @@ sealed class MouseShare : IDisposable
     /// <summary>Takes the pointer back right away (the hotkey, or Async closing).</summary>
     public void Recall() => Stop(null, tellOther: true);
 
+    /// <summary>Hands work to the UI thread from a background one; never throws (a failure here must not end Async).</summary>
+    void Post(Action work)
+    {
+        try { ui.BeginInvoke(work); }
+        catch (Exception e) { Log.Write($"Mouse mode: couldn't reach the UI thread: {e.Message}"); }
+    }
+
     // ---------- hooks ----------
 
     internal IntPtr OnMouse(int code, IntPtr wParam, IntPtr lParam)
@@ -180,7 +187,7 @@ sealed class MouseShare : IDisposable
         // Async's hotkey brings the pointer straight back.
         if (down && cfg.TryParseHotkey(out uint mods, out uint vk) && k.vkCode == vk && ModsHeld(mods))
         {
-            ui.BeginInvoke(Recall);
+            Post(Recall);
             return 1;
         }
         int evdev = Evdev(k.vkCode, k.scanCode, (k.flags & 1) != 0);
@@ -299,7 +306,7 @@ sealed class MouseShare : IDisposable
             }
             FlushMove();
             try { stream.Write(batch.GetBuffer(), 0, (int)batch.Length); }
-            catch { if (Active) ui.BeginInvoke(() => Stop(null, tellOther: false)); return; }
+            catch { if (Active) Post(() => Stop(null, tellOther: false)); return; }
         }
     }
 
@@ -317,7 +324,7 @@ sealed class MouseShare : IDisposable
                     var f = new byte[5];
                     stream.ReadExactly(f);
                     float pos = BinaryPrimitives.ReadSingleLittleEndian(f.AsSpan(1));
-                    ui.BeginInvoke(() => Stop(pos, tellOther: false));
+                    Post(() => Stop(pos, tellOther: false));
                 }
                 else if (kind == 7)
                 {
@@ -326,13 +333,13 @@ sealed class MouseShare : IDisposable
                     var text = new byte[Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(len), 16u << 20)];
                     stream.ReadExactly(text);
                     var s = Encoding.UTF8.GetString(text);
-                    ui.BeginInvoke(() => { try { if (s.Length > 0) Clipboard.SetText(s); } catch { } });
+                    Post(() => { try { if (s.Length > 0) Clipboard.SetText(s); } catch { } });
                 }
                 else break;
             }
         }
         catch { }
-        if (Active) ui.BeginInvoke(() => Stop(null, tellOther: false));
+        if (Active) Post(() => Stop(null, tellOther: false));
     }
 
     // ---------- hiding this PC's cursor ----------

@@ -27,6 +27,7 @@ case "$os" in
     unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/async-core.service"
     autostart="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/async-desktop.desktop"
     menu_entry="${XDG_DATA_HOME:-$HOME/.local/share}/applications/async.desktop"
+    desktop_log="${XDG_CACHE_HOME:-$HOME/.cache}/async-desktop.log"
     ;;
   *) echo "This script is for macOS and Linux. On Windows, run Async.exe." >&2; exit 1 ;;
 esac
@@ -130,12 +131,13 @@ EOF
 
   if [ -x "$desktop" ]; then
     mkdir -p "$(dirname "$autostart")" "$(dirname "$menu_entry")"
+    # The tray app's log goes to a file (a fresh one each login), for when something needs looking into.
     cat > "$autostart" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Async
 Comment=Push the mouse through a screen edge to punch into another computer
-Exec=$desktop
+Exec=sh -c 'mkdir -p "\$(dirname "$desktop_log")"; exec "$desktop" > "$desktop_log" 2>&1'
 Icon=network-workgroup
 X-GNOME-Autostart-enabled=true
 EOF
@@ -151,7 +153,8 @@ Categories=Network;RemoteAccess;
 EOF
     if [ -n "${DISPLAY:-}" ]; then
       sleep 1 # let the engine open its socket first
-      (nohup "$desktop" >/dev/null 2>&1 &)
+      mkdir -p "$(dirname "$desktop_log")"
+      (nohup "$desktop" >"$desktop_log" 2>&1 &)
       say "Async's tray icon (a purple ring) is running, and starts at every login."
     else
       say "Async's tray icon starts at your next login (or run: async-desktop)."
